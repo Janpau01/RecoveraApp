@@ -1,0 +1,11 @@
+streamlit==1.32.0
+pandas
+numpy==1.26.4
+plotly
+scikit-learn
+opencv-python-headless
+fer==22.4.0
+tensorflow==2.15.0
+keras==2.15.0
+pillow
+setuptools
