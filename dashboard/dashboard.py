@@ -1355,7 +1355,7 @@ elif menu == "Guide":
     <div style="background:#111827;padding:22px 24px;border-radius:18px;
                 border-left:5px solid #3B82F6;margin-bottom:20px;">
         <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
-            🧠 Apa itu Kelelahan Digital?
+             Apa itu Kelelahan Digital?
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
             Kelelahan digital adalah kondisi saat otak kamu kelelahan karena terlalu banyak 
@@ -1368,7 +1368,7 @@ elif menu == "Guide":
         </p>
         <div style="background:#1E3A5F;border-radius:12px;padding:14px 16px;">
             <p style="color:#93C5FD;font-size:14px;font-weight:600;margin:0 0 8px;">
-                ⚡ Tanda-tanda kamu mulai kelelahan digital:
+                 Tanda-tanda kamu mulai kelelahan digital:
             </p>
             <ul style="color:#D1D5DB;font-size:14px;line-height:2;margin:0;padding-left:18px;">
                 <li>Sulit fokus walau pekerjaannya mudah</li>
@@ -1386,7 +1386,7 @@ elif menu == "Guide":
     <div style="background:#1a1020;padding:22px 24px;border-radius:18px;
                 border-left:5px solid #A855F7;margin-bottom:20px;">
         <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
-            🎰 Kenapa Scrolling Bikin Ketagihan?
+             Kenapa Scrolling Bikin Ketagihan?
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
             TikTok, Instagram Reels, dan YouTube Shorts dirancang seperti mesin slot — 
@@ -1416,7 +1416,7 @@ elif menu == "Guide":
     <div style="background:#0f1a1a;padding:22px 24px;border-radius:18px;
                 border-left:5px solid #10B981;margin-bottom:20px;">
         <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
-            😴 Kenapa Tidur Itu Sangat Penting?
+             Kenapa Tidur Itu Sangat Penting?
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
             Saat tidur, otak tidak benar-benar istirahat — justru otak sedang 
@@ -1446,7 +1446,7 @@ elif menu == "Guide":
     <div style="background:#111827;padding:22px 24px;border-radius:18px;
                 border-left:5px solid #F59E0B;margin-bottom:20px;">
         <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
-            🌿 Cara Recovery yang Efektif (dan Mudah Dilakukan)
+             Cara Recovery yang Efektif (dan Mudah Dilakukan)
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 14px;">
             Recovery bukan berarti kamu harus berhenti pakai HP selamanya. 
@@ -1488,7 +1488,7 @@ elif menu == "Guide":
     <div style="background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);
                 padding:24px;border-radius:18px;margin-top:8px;text-align:center;">
         <p style="font-size:22px;font-weight:700;color:white;margin:0 0 10px;">
-            💪 Kabar Baiknya: Otak Kamu Bisa Pulih!
+             Kabar Baiknya: Otak Kamu Bisa Pulih!
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;max-width:600px;margin:0 auto 16px;">
             Otak manusia bersifat <b style="color:#34D399;">neuroplastis</b> — artinya bisa berubah 
