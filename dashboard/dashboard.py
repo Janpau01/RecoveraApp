@@ -480,7 +480,7 @@ menu = st.session_state.menu
 # PAGE: BERANDA
 # ═════════════════════════════════════════════
 
-if menu == "🏠 Beranda":
+if menu == "Beranda":
 
     st.title("Welcome to Recovera")
     st.markdown("#### Track Your Energy, Balance Your Digital Life, and Reclaim Your Focus.")
@@ -1343,70 +1343,167 @@ elif menu == "Face Check":
 
 elif menu == "Guide":
 
-    st.header("Buku Panduan")
+    st.header("📖 Panduan Digital Wellness")
     st.markdown(
-        "Panduan ini membantu Anda memahami dampak aktivitas digital, menjaga keseimbangan mental, "
-        "serta memberikan edukasi tentang recovery dan digital wellness sehari-hari."
+        "Semua yang perlu kamu tahu tentang kesehatan mental di era digital — "
+        "dijelaskan dengan sederhana dan mudah dipahami."
     )
     st.markdown("---")
 
+    # ── Section 1: Apa itu Kelelahan Digital? ──────────────────────────────
     st.markdown("""
-    <div style="background-color:#111827;padding:20px;border-radius:14px;
-                border-left:5px solid #3B82F6;margin-bottom:16px;">
-        <p style="font-size:18px;font-weight:bold;margin:0 0 10px;">Cognitive Fatigue</p>
-        <p style="font-size:15px;line-height:1.6;margin:0;">
-            Cognitive fatigue atau kelelahan kognitif adalah kondisi penurunan kemampuan mental akibat
-            aktivitas digital berlebihan, kurang tidur, stres, serta overload informasi digital.
-            Kondisi ini dapat menyebabkan:
+    <div style="background:#111827;padding:22px 24px;border-radius:18px;
+                border-left:5px solid #3B82F6;margin-bottom:20px;">
+        <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
+            🧠 Apa itu Kelelahan Digital?
         </p>
-        <ul style="font-size:15px;line-height:1.8;margin-top:8px;">
-            <li>Penurunan fokus dan konsentrasi</li>
-            <li>Produktivitas kerja menurun</li>
-            <li>Kesulitan mengambil keputusan</li>
-            <li>Kelelahan mental (mental exhaustion)</li>
-            <li>Peningkatan risiko burnout</li>
-        </ul>
-    </div>
-
-    <div style="background-color:#1F2937;padding:20px;border-radius:14px;
-                border-left:5px solid #EF4444;margin-bottom:16px;">
-        <p style="font-size:18px;font-weight:bold;margin:0 0 10px;">Dampak Potensial</p>
-        <p style="font-size:15px;line-height:1.6;margin:0;">
-            Konsumsi konten digital berlebihan dapat menyebabkan:
+        <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
+            Kelelahan digital adalah kondisi saat otak kamu kelelahan karena terlalu banyak 
+            berinteraksi dengan layar — scrolling, notifikasi, konten video, chat, dan lainnya.
         </p>
-        <ul style="font-size:15px;line-height:1.8;margin-top:8px;">
-            <li>Penurunan fokus dan konsentrasi</li>
-            <li>Overstimulasi dopamin akibat konten instan</li>
-            <li>Mental exhaustion atau kelelahan mental</li>
-            <li>Kesulitan melakukan deep work</li>
-            <li>Motivasi belajar dan produktivitas menurun</li>
-            <li>Gangguan kualitas tidur</li>
-            <li>Peningkatan stres dan kecemasan</li>
-        </ul>
-    </div>
-
-    <div style="background-color:#111827;padding:20px;border-radius:14px;
-                border-left:5px solid #10B981;">
-        <p style="font-size:18px;font-weight:bold;margin:0 0 10px;">Neuroplasticity Recovery Insight</p>
-        <p style="font-size:15px;line-height:1.6;margin:0;">
-            Otak manusia memiliki kemampuan neuroplasticity — kemampuan membentuk ulang jalur saraf
-            berdasarkan kebiasaan baru. Artinya, kelelahan akibat overstimulasi digital bukan kondisi permanen.
-            Kebiasaan sehat berikut dapat membantu memulihkan fokus dan kesehatan mental:
+        <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
+            Bayangkan otakmu seperti <b style="color:#60A5FA;">baterai HP</b>. Semakin banyak 
+            aplikasi yang berjalan, semakin cepat baterai habis. Jika tidak di-charge (istirahat), 
+            lama-lama HP mati sendiri.
         </p>
-        <ul style="font-size:15px;line-height:1.8;margin-top:8px;">
-            <li>Tidur cukup 7–8 jam</li>
-            <li>Mengurangi durasi penggunaan gadget berlebihan</li>
-            <li>Olahraga rutin</li>
-            <li>Membaca buku</li>
-            <li>Melatih deep work dan fokus</li>
-            <li>Mengurangi konsumsi short-form content</li>
-        </ul>
+        <div style="background:#1E3A5F;border-radius:12px;padding:14px 16px;">
+            <p style="color:#93C5FD;font-size:14px;font-weight:600;margin:0 0 8px;">
+                ⚡ Tanda-tanda kamu mulai kelelahan digital:
+            </p>
+            <ul style="color:#D1D5DB;font-size:14px;line-height:2;margin:0;padding-left:18px;">
+                <li>Sulit fokus walau pekerjaannya mudah</li>
+                <li>Sering buka HP tanpa tujuan jelas</li>
+                <li>Merasa lelah padahal baru bangun tidur</li>
+                <li>Mudah bosan dan tidak sabaran</li>
+                <li>Butuh hiburan terus-menerus agar tidak bosan</li>
+            </ul>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-# ═════════════════════════════════════════════
-# FOOTER
-# ═════════════════════════════════════════════
+    # ── Section 2: Kenapa Scrolling Bikin Ketagihan? ────────────────────────
+    st.markdown("""
+    <div style="background:#1a1020;padding:22px 24px;border-radius:18px;
+                border-left:5px solid #A855F7;margin-bottom:20px;">
+        <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
+            🎰 Kenapa Scrolling Bikin Ketagihan?
+        </p>
+        <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
+            TikTok, Instagram Reels, dan YouTube Shorts dirancang seperti mesin slot — 
+            kamu tidak tahu konten apa yang akan muncul selanjutnya, dan itu membuat otak 
+            terus memproduksi <b style="color:#C084FC;">dopamin</b> (zat kimia "kesenangan").
+        </p>
+        <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
+            Masalahnya: semakin sering dopamin dipicu oleh hal mudah (scroll), 
+            semakin sulit otak menikmati aktivitas yang butuh usaha — seperti belajar, membaca, 
+            atau mengerjakan tugas.
+        </p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
+            <div style="background:#2D1B4E;border-radius:10px;padding:12px 14px;flex:1;min-width:140px;">
+                <p style="color:#A855F7;font-weight:700;font-size:13px;margin:0 0 4px;">Jangka Pendek</p>
+                <p style="color:#D1D5DB;font-size:13px;margin:0;">Senang sesaat, lalu bosan lagi dengan cepat</p>
+            </div>
+            <div style="background:#2D1B4E;border-radius:10px;padding:12px 14px;flex:1;min-width:140px;">
+                <p style="color:#EC4899;font-weight:700;font-size:13px;margin:0 0 4px;">Jangka Panjang</p>
+                <p style="color:#D1D5DB;font-size:13px;margin:0;">Fokus menurun, motivasi rendah, mudah cemas</p>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-st.markdown("---")
-st.caption("Dashboard Pengembangan Sistem Deteksi Dini Kelelahan Kognitif Berbasis Aktivitas Harian")
+    # ── Section 3: Kenapa Tidur Itu Penting? ───────────────────────────────
+    st.markdown("""
+    <div style="background:#0f1a1a;padding:22px 24px;border-radius:18px;
+                border-left:5px solid #10B981;margin-bottom:20px;">
+        <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
+            😴 Kenapa Tidur Itu Sangat Penting?
+        </p>
+        <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
+            Saat tidur, otak tidak benar-benar istirahat — justru otak sedang 
+            <b style="color:#34D399;">memproses memori, membuang "sampah" racun saraf</b>, 
+            dan memulihkan energi mental untuk hari berikutnya.
+        </p>
+        <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 14px;">
+            Main HP sebelum tidur merusak proses ini karena cahaya biru layar menghambat 
+            produksi melatonin — hormon yang memberi sinyal "waktunya tidur" ke otak.
+        </p>
+        <div style="background:#134E3A;border-radius:12px;padding:14px 16px;">
+            <p style="color:#6EE7B7;font-size:14px;font-weight:600;margin:0 0 8px;">
+                ✅ Tips tidur lebih berkualitas:
+            </p>
+            <ul style="color:#D1D5DB;font-size:14px;line-height:2;margin:0;padding-left:18px;">
+                <li>Matikan HP atau taruh jauh dari tempat tidur 30 menit sebelum tidur</li>
+                <li>Coba tidur dan bangun di jam yang sama setiap hari</li>
+                <li>Ganti scrolling malam dengan membaca buku ringan</li>
+                <li>Redupkan lampu kamar 1 jam sebelum tidur</li>
+            </ul>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Section 4: Cara Recovery yang Efektif ──────────────────────────────
+    st.markdown("""
+    <div style="background:#111827;padding:22px 24px;border-radius:18px;
+                border-left:5px solid #F59E0B;margin-bottom:20px;">
+        <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
+            🌿 Cara Recovery yang Efektif (dan Mudah Dilakukan)
+        </p>
+        <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 14px;">
+            Recovery bukan berarti kamu harus berhenti pakai HP selamanya. 
+            Cukup berikan jeda yang tepat agar otak bisa pulih.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Recovery cards in 2 columns
+    rc1, rc2 = st.columns(2)
+    recovery_items = [
+        ("📵", "#3B82F6", "Digital Detox Mini",
+         "Coba 30–60 menit tanpa HP setiap hari. Tidak perlu seharian — cukup konsisten."),
+        ("🚶", "#10B981", "Gerak Fisik",
+         "Jalan kaki 20 menit terbukti mengurangi kortisol (hormon stres) dan meningkatkan mood."),
+        ("📚", "#F59E0B", "Baca Buku Fisik",
+         "Membaca melatih fokus jangka panjang yang terkikis oleh konten pendek."),
+        ("🧘", "#A855F7", "Pernapasan / Meditasi",
+         "5 menit latihan napas dalam bisa menurunkan stres lebih efektif dari scrolling."),
+        ("✍️", "#EC4899", "Tulis Jurnal",
+         "Menulis perasaan membantu otak 'menutup tab' yang terus berjalan di latar belakang."),
+        ("🌳", "#22C55E", "Waktu di Alam Terbuka",
+         "Bahkan duduk di taman 15 menit dapat menurunkan tekanan mental secara signifikan."),
+    ]
+    for i, (icon, color, title, desc) in enumerate(recovery_items):
+        col = rc1 if i % 2 == 0 else rc2
+        with col:
+            st.markdown(f"""
+            <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;
+                        padding:16px;margin-bottom:12px;border-top:3px solid {color};">
+                <p style="font-size:22px;margin:0 0 6px;">{icon}</p>
+                <p style="font-size:15px;font-weight:700;color:white;margin:0 0 6px;">{title}</p>
+                <p style="font-size:13px;color:#9CA3AF;line-height:1.7;margin:0;">{desc}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ── Section 5: Otak Bisa Pulih ─────────────────────────────────────────
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);
+                padding:24px;border-radius:18px;margin-top:8px;text-align:center;">
+        <p style="font-size:22px;font-weight:700;color:white;margin:0 0 10px;">
+            💪 Kabar Baiknya: Otak Kamu Bisa Pulih!
+        </p>
+        <p style="font-size:15px;color:#D1D5DB;line-height:1.8;max-width:600px;margin:0 auto 16px;">
+            Otak manusia bersifat <b style="color:#34D399;">neuroplastis</b> — artinya bisa berubah 
+            dan pulih seiring kebiasaan baru. Kelelahan digital bukan kondisi permanen.
+        </p>
+        <p style="font-size:15px;color:#A7F3D0;line-height:1.8;max-width:600px;margin:0 auto;">
+            Mulai dari hal kecil: tidur lebih awal 30 menit, jalan kaki sebentar, 
+            atau letakkan HP saat makan. Konsistensi kecil menghasilkan perubahan besar.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ═════════════════════════════════════════════
+    # FOOTER
+    # ═════════════════════════════════════════════
+    
+    st.markdown("---")
+    st.caption("Dashboard Pengembangan Sistem Deteksi Dini Kelelahan Kognitif Berbasis Aktivitas Harian")
