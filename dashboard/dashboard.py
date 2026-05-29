@@ -15,6 +15,10 @@ from fer import FER
 
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+csv_path = os.path.join(BASE_DIR, "data", "screen_time_mentalwellness.csv")
+
+df = pd.read_csv(csv_path)
 
 # ─────────────────────────────────────────────
 # CONSTANTS
