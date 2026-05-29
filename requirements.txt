@@ -8,4 +8,4 @@ fer==22.4.0
 tensorflow==2.15.0
 keras==2.15.0
 pillow
-setuptools
+setuptools==69.5.1
