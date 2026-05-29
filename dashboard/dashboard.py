@@ -184,7 +184,14 @@ if "confirm_delete" not in st.session_state:
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv("data/screen_time_mentalwellness.csv")
+    BASE_DIR = os.path.dirname(os.path.dirname(__file__)) 
+    csv_path = os.path.join(
+        BASE_DIR,
+        "data",
+        "screen_time_mentalwellness.csv"
+    )
+    df = pd.read_csv(csv_path)
+    return df
     df = df.rename(columns={
         "screen_time_hours":           "screen_time",
         "sleep_hours":                 "sleep_hours",
