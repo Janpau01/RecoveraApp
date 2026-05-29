@@ -482,7 +482,7 @@ menu = st.session_state.menu
 
 if menu == "🏠 Beranda":
 
-    st.title("Welcome to Recovera 🌿")
+    st.title("Welcome to Recovera")
     st.markdown("#### Track Your Energy, Balance Your Digital Life, and Reclaim Your Focus.")
 
     st.markdown("""
