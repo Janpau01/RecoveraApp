@@ -1,3 +1,2 @@
 venv/
 .streamlit/secrets.toml
-data/*.csv
