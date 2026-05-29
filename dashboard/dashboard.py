@@ -274,7 +274,7 @@ input[type="number"] {
 # ─────────────────────────────────────────────
 
 if "wellness_result" not in st.session_state: st.session_state.wellness_result = None
-if "menu"            not in st.session_state: st.session_state.menu            = "🏠 Beranda"
+if "menu"            not in st.session_state: st.session_state.menu            = " Beranda"
 if "recovery_checks" not in st.session_state: st.session_state.recovery_checks = {}
 if "confirm_delete"  not in st.session_state: st.session_state.confirm_delete  = False
 if "face_result"     not in st.session_state: st.session_state.face_result     = None
@@ -413,7 +413,7 @@ def recovery_plan_tabs(challenges_by_cat, prefix):
         with tab:
             items = challenges_by_cat.get(cat, [])
             if not items:
-                st.info(f"Tidak ada rekomendasi {cat} untuk kondisi Anda saat ini. 🌿")
+                st.info(f"Tidak ada rekomendasi {cat} untuk kondisi Anda saat ini. ")
                 continue
             done = 0
             for i, (icon, text, duration) in enumerate(items):
@@ -482,109 +482,251 @@ menu = st.session_state.menu
 
 if menu == "Beranda":
 
-    st.title("Welcome to Recovera")
-    st.markdown("#### Track Your Energy, Balance Your Digital Life, and Reclaim Your Focus.")
-
+    # ── Hero Section ────────────────────────────────────────────────────────
     st.markdown("""
-    <div style="background-color:#111827;padding:16px 18px;border-radius:18px;
-                border-left:5px solid #22c55e;margin-bottom:16px;">
-        <h3 style="color:white;margin:0 0 8px;font-size:18px;">Your Recovery Space</h3>
-        <p style="margin:0;color:#D1D5DB;font-size:15px;line-height:1.6;">
-            Aktivitas digital yang berlebihan dapat memengaruhi fokus, kualitas tidur, dan keseimbangan mental.
-            Melalui Recovera, Anda dapat memahami pola digital, membangun kebiasaan recovery yang sehat,
-            dan menjaga wellness secara lebih seimbang.
+    <div style="text-align:center;padding:48px 16px 32px;">
+        <div style="display:inline-block;background:rgba(34,197,94,0.12);
+                    border:1px solid rgba(34,197,94,0.3);border-radius:30px;
+                    padding:6px 18px;margin-bottom:20px;">
+            <span style="color:#22c55e;font-size:13px;font-weight:600;letter-spacing:1.5px;">
+                ✦ DIGITAL WELLNESS TRACKER
+            </span>
+        </div>
+        <h1 style="font-size:clamp(32px,6vw,58px);font-weight:800;
+                   background:linear-gradient(135deg,#ffffff 0%,#a3e635 50%,#22c55e 100%);
+                   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+                   background-clip:text;line-height:1.15;margin:0 0 16px;">
+            Seberapa Lelah<br>Otakmu Hari Ini?
+        </h1>
+        <p style="font-size:clamp(15px,2.5vw,18px);color:#9CA3AF;max-width:520px;
+                  margin:0 auto 28px;line-height:1.8;">
+            Tanpa sadar, HP di tanganmu mungkin sedang menguras energi mental yang kamu butuhkan. 
+            <b style="color:#D1D5DB;">Recovera</b> membantumu mendeteksinya — dan memulihkannya.
         </p>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+            <div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);
+                        border-radius:10px;padding:8px 18px;font-size:13px;color:#86EFAC;">
+                🧠 Deteksi Kelelahan Mental
+            </div>
+            <div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.25);
+                        border-radius:10px;padding:8px 18px;font-size:13px;color:#93C5FD;">
+                📊 Analisis Aktivitas Digital
+            </div>
+            <div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.25);
+                        border-radius:10px;padding:8px 18px;font-size:13px;color:#C4B5FD;">
+                🌿 Panduan Recovery Personal
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Bar chart ──────────────────────────────
-    st.subheader("Statistik Pengaruh Aktivitas Digital")
-    BAR_DATA = [
-        ("Penggunaan Rendah", 3.4, "Stabil",         "#22c55e"),
-        ("Penggunaan Sedang", 5.5, "Perlu Perhatian", "#f59e0b"),
-        ("Penggunaan Tinggi", 7.8, "Risiko Tinggi",   "#ef4444"),
+    # ── Pertanyaan Penasaran ─────────────────────────────────────────────────
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#111827,#1a2035);
+                border:1px solid #1f2937;border-radius:20px;padding:28px 24px;
+                margin-bottom:20px;">
+        <p style="color:#6B7280;font-size:12px;font-weight:700;letter-spacing:2px;
+                  text-transform:uppercase;margin:0 0 16px;">Coba Jawab Jujur...</p>
+        <div style="display:grid;gap:10px;">
+            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;
+                        border-left:3px solid #22c55e;display:flex;align-items:center;gap:12px;">
+                <span style="font-size:20px;"></span>
+                <p style="color:#D1D5DB;font-size:15px;margin:0;line-height:1.6;">
+                    Kamu buka HP sebelum bangun dari kasur tadi pagi?
+                </p>
+            </div>
+            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;
+                        border-left:3px solid #F59E0B;display:flex;align-items:center;gap:12px;">
+                <span style="font-size:20px;"></span>
+                <p style="color:#D1D5DB;font-size:15px;margin:0;line-height:1.6;">
+                    Pernah merasa lelah padahal tidak melakukan apa-apa selain rebahan scroll?
+                </p>
+            </div>
+            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;
+                        border-left:3px solid #EF4444;display:flex;align-items:center;gap:12px;">
+                <span style="font-size:20px;"></span>
+                <p style="color:#D1D5DB;font-size:15px;margin:0;line-height:1.6;">
+                    Susah fokus lebih dari 10 menit tanpa tergoda buka notifikasi?
+                </p>
+            </div>
+            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;
+                        border-left:3px solid #A855F7;display:flex;align-items:center;gap:12px;">
+                <span style="font-size:20px;"></span>
+                <p style="color:#D1D5DB;font-size:15px;margin:0;line-height:1.6;">
+                    Tidur malam tapi otak masih "nyala" dan sulit berhenti berpikir?
+                </p>
+            </div>
+        </div>
+        <div style="background:rgba(34,197,94,0.08);border:1px dashed rgba(34,197,94,0.3);
+                    border-radius:12px;padding:14px 16px;margin-top:16px;text-align:center;">
+            <p style="color:#86EFAC;font-size:14px;margin:0;line-height:1.7;">
+                Kalau kamu mengangguk untuk 2 atau lebih pertanyaan di atas — 
+                <b>otakmu mungkin sedang kelelahan digital.</b><br>
+                <span style="color:#6B7280;">Recovera bisa membantu kamu memahami dan memulihkannya.</span>
+            </p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Statistik Fakta ──────────────────────────────────────────────────────
+    st.markdown("""
+    <p style="color:#6B7280;font-size:12px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin:0 0 12px;">Fakta yang Perlu Kamu Tahu</p>
+    """, unsafe_allow_html=True)
+
+    fs1, fs2, fs3 = st.columns(3)
+    facts = [
+        ("7+ Jam", "Rata-rata orang Indonesia menatap layar setiap hari", "#22c55e"),
+        ("53%", "Pengguna aktif berada di ambang kelelahan mental (Near-Burnout)", "#EF4444"),
+        ("2×", "Lebih sulit fokus setelah sering terpapar konten pendek", "#F59E0B"),
     ]
-    fig_bar = go.Figure()
-    for lbl, val, name, color in BAR_DATA:
-        fig_bar.add_trace(go.Bar(
-            x=[lbl], y=[val], name=name,
-            marker_color=color, text=[str(val)], textposition="outside",
-        ))
-    fig_bar.add_hline(y=5, line_dash="dash", line_color="#22c55e",
-                      annotation_text="Batas Stabil", annotation_position="top right")
-    fig_bar.update_layout(
-        barmode="group",
-        title={"text": "Pengaruh Aktivitas Digital terhadap Kondisi Mental",
-               "x": 0.02, "font": {"size": 16}},
-        paper_bgcolor="#111827", plot_bgcolor="#111827",
-        font={"color": "white", "size": 13}, height=380,
-        margin=dict(t=60, l=10, r=10, b=20),
-        xaxis=dict(title="", showgrid=False),
-        yaxis=dict(title="Estimasi Risiko", range=[0, 10],
-                   gridcolor="rgba(255,255,255,0.08)"),
-        legend=dict(bgcolor="rgba(0,0,0,0)", orientation="h", y=-0.15),
-    )
-    st.plotly_chart(fig_bar, use_container_width=True, config=PLOTLY_CFG)
+    for col, (val, desc, color) in zip([fs1, fs2, fs3], facts):
+        with col:
+            st.markdown(f"""
+            <div style="background:#111827;border:1px solid #1f2937;border-radius:16px;
+                        padding:20px 16px;text-align:center;height:100%;">
+                <p style="font-size:32px;font-weight:800;color:{color};margin:0 0 8px;
+                          line-height:1;">{val}</p>
+                <p style="font-size:13px;color:#9CA3AF;margin:0;line-height:1.6;">{desc}</p>
+            </div>
+            """, unsafe_allow_html=True)
 
-    # ── CTA cards — 1 column each on mobile ───
-    st.markdown("---")
-    st.subheader("Mulai Perjalanan Wellness Anda")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.info("**Daily Check**\n\nPeriksa kondisi digital wellness harian Anda berdasarkan aktivitas nyata.")
-    with c2:
-        st.success("**Recovery Center**\n\nDapatkan rekomendasi recovery personal untuk menjaga keseimbangan mental.")
+    # ── Cara Kerja Recovera ──────────────────────────────────────────────────
+    st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+    st.markdown("""
+    <p style="color:#6B7280;font-size:12px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin:0 0 12px;">Bagaimana Recovera Bekerja?</p>
+    """, unsafe_allow_html=True)
 
-    # ── Pie chart + summary — stacked on mobile ─
-    st.markdown("---")
-    st.subheader("Gambaran Kondisi Mental Pengguna")
+    steps = [
+        ("01", "Daily Check", "#3B82F6",
+         "Isi kondisi harianmu dalam 2 menit — waktu layar, tidur, stres, olahraga.",
+         "Langsung dapat hasil analisis kondisi mentalmu hari ini."),
+        ("02", "Analisis AI", "#22c55e",
+         "Model ML kami membaca polamu dan menghitung seberapa besar risiko kelelahan mental.",
+         "Bukan sekadar kuis — ini analisis berbasis data nyata."),
+        ("03", "Recovery Plan", "#A855F7",
+         "Dapat rekomendasi recovery yang disesuaikan dengan kondisimu — bukan tips generik.",
+         "Digital detox, olahraga, meditasi — semua terstruktur untukmu."),
+        ("04", "Journey Tracker", "#F59E0B",
+         "Pantau perkembanganmu dari waktu ke waktu. Lihat apakah kondisimu membaik.",
+         "Setiap langkah kecil tercatat dan terlihat."),
+    ]
 
-    pie_col, sum_col = st.columns(2, gap="large")
+    for num, title, color, desc, highlight in steps:
+        st.markdown(f"""
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:16px;
+                    padding:18px 20px;margin-bottom:10px;
+                    display:flex;align-items:flex-start;gap:16px;">
+            <div style="background:{color}22;border:1px solid {color}44;border-radius:10px;
+                        min-width:44px;height:44px;display:flex;align-items:center;
+                        justify-content:center;font-size:13px;font-weight:800;color:{color};">
+                {num}
+            </div>
+            <div style="flex:1;">
+                <p style="font-size:16px;font-weight:700;color:white;margin:0 0 4px;">{title}</p>
+                <p style="font-size:14px;color:#9CA3AF;margin:0 0 6px;line-height:1.6;">{desc}</p>
+                <p style="font-size:13px;color:{color};margin:0;">✦ {highlight}</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── Bar Chart Pengaruh Digital ────────────────────────────────────────────
+    st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+    st.markdown("""
+    <p style="color:#6B7280;font-size:12px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin:0 0 12px;">Data Pengguna Recovera</p>
+    """, unsafe_allow_html=True)
+
+    pie_col, sum_col = st.columns([1, 1], gap="large")
     with pie_col:
         PIE_LABELS = ["🔴 Near-Burnout", "🟡 Strained", "🟢 Refreshed"]
         PIE_VALUES = [53, 33, 14]
         PIE_COLORS = {
-            "🔴 Near-Burnout": "#ff4b6e",
-            "🟡 Strained":     "#f7b731",
-            "🟢 Refreshed":    "#2ecc71",
+            "🔴 Near-Burnout": "#ef4444",
+            "🟡 Strained":     "#f59e0b",
+            "🟢 Refreshed":    "#22c55e",
         }
-        fig_pie = px.pie(names=PIE_LABELS, values=PIE_VALUES, hole=0.45,
+        fig_pie = px.pie(names=PIE_LABELS, values=PIE_VALUES, hole=0.55,
                          color=PIE_LABELS, color_discrete_map=PIE_COLORS)
         fig_pie.update_traces(
-            textposition="inside", textinfo="percent+label", pull=[0.03, 0.02, 0.02]
+            textposition="inside", textinfo="percent+label",
+            pull=[0.04, 0.02, 0.02],
         )
         fig_pie.update_layout(
-            height=380, paper_bgcolor="#0B1120", plot_bgcolor="#0B1120",
-            font=dict(color="white", size=13),
-            legend=dict(orientation="h", y=-0.15, x=0.1),
+            height=320, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white", size=12),
+            legend=dict(orientation="h", y=-0.15, x=0.05),
             margin=dict(t=10, b=20, l=10, r=10),
+            annotations=[dict(
+                text="<b>53%</b><br>Near-Burnout",
+                x=0.5, y=0.5, showarrow=False,
+                font=dict(size=13, color="white"),
+            )],
         )
         st.plotly_chart(fig_pie, use_container_width=True, config=PLOTLY_CFG)
 
     with sum_col:
         st.markdown("""
-        <div style="background-color:#111827;padding:20px;border-radius:18px;
-                    border-left:5px solid #00CC96;">
-            <h3 style="color:white;margin-top:0;font-size:18px;">Ringkasan Kondisi Mental Anda</h3>
-            <p style="color:#E5E7EB;font-size:15px;line-height:1.6;">
-                Sebagian besar pengguna berada pada kondisi
-                <b style="color:#ff4b6e;">Near-Burnout</b> akibat tingginya penggunaan digital
-                dan kurangnya recovery mental.
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:16px;
+                    padding:20px;height:100%;">
+            <p style="color:#9CA3AF;font-size:13px;margin:0 0 14px;line-height:1.6;">
+                Dari data pengguna Recovera, lebih dari separuh berada di kondisi 
+                <b style="color:#ef4444;">Near-Burnout</b> — tanpa mereka sadari sepenuhnya.
             </p>
-            <p style="color:#E5E7EB;font-size:15px;line-height:1.6;">
-                Pengguna <b style="color:#f7b731;">Strained</b> mulai menunjukkan tanda kelelahan digital
-                yang dapat memengaruhi fokus dan produktivitas.
-            </p>
-            <p style="color:#E5E7EB;font-size:15px;line-height:1.6;">
-                Pengguna <b style="color:#2ecc71;">Refreshed</b> memiliki pola digital lebih
-                seimbang dan kualitas recovery lebih baik.
-            </p>
-            <p style="color:#A7F3D0;font-size:14px;line-height:1.6;margin-bottom:0;">
-                Dengan Menjaga kualitas tidur, mengurangi overstimulasi digital, dan rutin melakukan
-                recovery harian dapat membantu menjaga keseimbangan mental Anda.
+            <div style="margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="color:#ef4444;font-size:13px;font-weight:600;">🔴 Near-Burnout</span>
+                    <span style="color:#ef4444;font-size:13px;">53%</span>
+                </div>
+                <div style="background:#1f2937;border-radius:99px;height:6px;">
+                    <div style="background:#ef4444;width:53%;height:6px;border-radius:99px;"></div>
+                </div>
+            </div>
+            <div style="margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="color:#f59e0b;font-size:13px;font-weight:600;">🟡 Strained</span>
+                    <span style="color:#f59e0b;font-size:13px;">33%</span>
+                </div>
+                <div style="background:#1f2937;border-radius:99px;height:6px;">
+                    <div style="background:#f59e0b;width:33%;height:6px;border-radius:99px;"></div>
+                </div>
+            </div>
+            <div style="margin-bottom:16px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="color:#22c55e;font-size:13px;font-weight:600;">🟢 Refreshed</span>
+                    <span style="color:#22c55e;font-size:13px;">14%</span>
+                </div>
+                <div style="background:#1f2937;border-radius:99px;height:6px;">
+                    <div style="background:#22c55e;width:14%;height:6px;border-radius:99px;"></div>
+                </div>
+            </div>
+            <p style="color:#86EFAC;font-size:13px;margin:0;line-height:1.7;
+                      background:rgba(34,197,94,0.08);border-radius:10px;padding:10px 12px;">
+                ✦ Hanya <b>14%</b> pengguna yang benar-benar dalam kondisi sehat secara digital. 
+                Kamu ada di kelompok mana?
             </p>
         </div>
         """, unsafe_allow_html=True)
+
+    # ── CTA Akhir ────────────────────────────────────────────────────────────
+    st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#052e16,#14532d,#166534);
+                border:1px solid rgba(34,197,94,0.3);border-radius:20px;
+                padding:32px 24px;text-align:center;">
+        <p style="font-size:22px;font-weight:800;color:white;margin:0 0 10px;">
+            Mau tahu kondisi otakmu hari ini?
+        </p>
+        <p style="font-size:15px;color:#86EFAC;margin:0 0 8px;line-height:1.7;">
+            Butuh kurang dari <b>2 menit</b> untuk melakukan Daily Check pertamamu.<br>
+            Tidak perlu daftar. Tidak perlu bayar. Langsung pakai.
+        </p>
+        <p style="font-size:13px;color:#4ADE80;margin:0;">
+            👈 Klik <b>Daily Check</b> di sidebar untuk mulai
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ═════════════════════════════════════════════
 # PAGE: DAILY CHECK
