@@ -761,7 +761,7 @@ st.sidebar.markdown(f"""
 
 st.sidebar.markdown(
     "<p class='mobile-hint' style='color:#6b7280;font-size:12px;padding:0 4px 10px;'>"
-    "📱 Tap ☰ di pojok kiri atas untuk navigasi</p>",
+    "</p>",
     unsafe_allow_html=True,
 )
 
