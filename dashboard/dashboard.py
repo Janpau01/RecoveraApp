@@ -21,9 +21,7 @@ os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 # CONSTANTS
 # ─────────────────────────────────────────────
 
-HISTORY_FILE = "progress_history.csv"
-MOOD_FILE    = "mood_journal.csv"
-DB_FILE      = "recovera_users.db"
+DB_FILE = "recovera_users.db"
 
 # MediaPipe thresholds
 FACE_MESH_MIN_DETECTION = 0.5
@@ -343,6 +341,18 @@ input[type="number"] {
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
+# USER FILE HELPER (harus di atas SESSION STATE)
+# ─────────────────────────────────────────────
+
+def get_user_files(username: str):
+    """Kembalikan path history & mood khusus untuk user ini."""
+    os.makedirs("data/users", exist_ok=True)
+    return (
+        f"data/users/{username}_history.csv",
+        f"data/users/{username}_mood.csv",
+    )
+
+# ─────────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────────
 
@@ -361,15 +371,19 @@ for k, v in defaults.items():
         st.session_state[k] = v
 
 if "progress_history" not in st.session_state:
-    st.session_state.progress_history = (
-        pd.read_csv(HISTORY_FILE).to_dict("records")
-        if os.path.exists(HISTORY_FILE) else []
-    )
-if "mood_history" not in st.session_state:
-    st.session_state.mood_history = (
-        pd.read_csv(MOOD_FILE).to_dict("records")
-        if os.path.exists(MOOD_FILE) else []
-    )
+    if st.session_state.logged_in and st.session_state.user:
+        _hf, _mf = get_user_files(st.session_state.user["username"])
+        st.session_state.progress_history = (
+            pd.read_csv(_hf).to_dict("records")
+            if os.path.exists(_hf) else []
+        )
+        st.session_state.mood_history = (
+            pd.read_csv(_mf).to_dict("records")
+            if os.path.exists(_mf) else []
+        )
+    else:
+        st.session_state.progress_history = []
+        st.session_state.mood_history     = []
 
 # ─────────────────────────────────────────────
 # CACHED LOADERS
@@ -470,10 +484,12 @@ def save_history(entry):
     h = st.session_state.progress_history
     if not h or h[-1] != entry:
         h.append(entry)
+        HISTORY_FILE, _ = get_user_files(st.session_state.user["username"])
         pd.DataFrame(h).to_csv(HISTORY_FILE, index=False)
 
 
 def save_mood(entry):
+    _, MOOD_FILE = get_user_files(st.session_state.user["username"])
     st.session_state.mood_history.append(entry)
     pd.DataFrame(st.session_state.mood_history).to_csv(MOOD_FILE, index=False)
 
@@ -1795,6 +1811,7 @@ elif menu == "Journey":
             if st.button("✅ Ya, Hapus Semua"):
                 st.session_state.progress_history = []
                 st.session_state.confirm_delete   = False
+                HISTORY_FILE, _ = get_user_files(st.session_state.user["username"])
                 if os.path.exists(HISTORY_FILE): os.remove(HISTORY_FILE)
                 st.success("Riwayat berhasil dihapus.")
                 st.rerun()
