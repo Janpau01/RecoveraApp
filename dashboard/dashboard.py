@@ -1003,6 +1003,20 @@ if menu == "Beranda":
         </p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Tambahkan DI BAWAHNYA:
+    st.markdown("""
+    <div style="text-align:center;padding:28px 16px 8px;">
+        <p style="font-size:15px;color:#6B7280;font-style:italic;line-height:1.9;margin:0;">
+            "Recovera bukan untuk mendiagnosis — tapi untuk 
+            <span style="color:#22c55e;font-style:italic;">menyadarkan.</span><br>
+            Karena langkah pertama menuju pemulihan adalah
+            <span style="color:#22c55e;font-weight:700;font-style:italic;">
+                mengenali bahwa kamu membutuhkannya.
+            </span>"
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ═════════════════════════════════════════════
@@ -1010,7 +1024,7 @@ if menu == "Beranda":
 # ═════════════════════════════════════════════
 
 elif menu == "Face Check":
-
+    
     st.markdown("""
     <div style="text-align:center;padding:32px 16px 20px;">
         <div style="display:inline-block;background:rgba(34,197,94,0.12);
@@ -1843,6 +1857,23 @@ elif menu == "Guide":
         <p style="font-size:15px;color:#A7F3D0;line-height:1.8;max-width:600px;margin:0 auto;">
             Mulai dari hal kecil: tidur lebih awal 30 menit, jalan kaki sebentar,
             atau letakkan HP saat makan. Konsistensi kecil menghasilkan perubahan besar.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);
+                border-radius:14px;padding:18px 20px;margin-top:8px;">
+        <p style="color:#FCA5A5;font-size:14px;font-weight:700;margin:0 0 8px;">
+            🔴 Penting untuk Diketahui
+        </p>
+        <p style="color:#D1D5DB;font-size:13px;line-height:1.8;margin:0;">
+            Recovera adalah <b style="color:white;">alat bantu kesadaran diri (self-awareness tool)</b>,
+            bukan aplikasi medis. Seluruh hasil analisis — baik dari Face Check maupun Daily Check —
+            bersifat prediksi dan <b style="color:white;">tidak menggantikan diagnosis atau konsultasi
+            profesional kesehatan mental</b>.<br><br>
+            Jika Anda merasa mengalami gangguan mental yang serius, segera hubungi profesional
+            atau layanan kesehatan terdekat.
         </p>
     </div>
     """, unsafe_allow_html=True)
