@@ -1,4 +1,6 @@
 import os
+import sqlite3
+import hashlib
 import joblib
 import numpy as np
 import pandas as pd
@@ -22,13 +24,14 @@ os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 HISTORY_FILE = "progress_history.csv"
 MOOD_FILE    = "mood_journal.csv"
+DB_FILE      = "recovera_users.db"
 
 MENU_ITEMS = [
     "Beranda",
+    "Face Check",
     "Daily Check",
     "Recovery",
     "Journey",
-    "Face Check",
     "Guide",
 ]
 
@@ -46,11 +49,72 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-# GLOBAL CSS  (desktop + mobile responsive)
+# DATABASE SETUP
+# ─────────────────────────────────────────────
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            full_name TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def register_user(username, email, password, full_name=""):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        c.execute(
+            "INSERT INTO users (username, email, password_hash, created_at, full_name) VALUES (?,?,?,?,?)",
+            (username.strip().lower(), email.strip().lower(),
+             hash_password(password), datetime.now().strftime("%d-%m-%Y %H:%M"), full_name.strip())
+        )
+        conn.commit()
+        return True, "Registrasi berhasil!"
+    except sqlite3.IntegrityError as e:
+        if "username" in str(e):
+            return False, "Username sudah digunakan."
+        elif "email" in str(e):
+            return False, "Email sudah terdaftar."
+        return False, "Gagal registrasi."
+    finally:
+        conn.close()
+
+def login_user(username_or_email, password):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    val = username_or_email.strip().lower()
+    c.execute(
+        "SELECT id, username, full_name FROM users WHERE (username=? OR email=?) AND password_hash=?",
+        (val, val, hash_password(password))
+    )
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return True, {"id": row[0], "username": row[1], "full_name": row[2]}
+    return False, None
+
+init_db()
+
+# ─────────────────────────────────────────────
+# GLOBAL CSS
+# PENTING: URL Google Fonts harus 1 baris, tidak boleh ada line break
 # ─────────────────────────────────────────────
 
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
 
 /* ── Background ── */
 .stApp {
@@ -60,6 +124,7 @@ st.markdown("""
         radial-gradient(circle at bottom center, rgba(16,185,129,0.12), transparent 35%),
         linear-gradient(135deg, #020617 0%, #0f172a 40%, #111827 70%, #052e2b 100%);
     color: white;
+    font-family: 'DM Sans', sans-serif;
 }
 
 /* ── Layout ── */
@@ -147,7 +212,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
     background: linear-gradient(90deg, #22c55e, #3b82f6);
 }
 
-/* ── Inputs — bigger tap targets ── */
+/* ── Inputs ── */
 textarea, input {
     background-color: #111827 !important;
     color: white !important;
@@ -201,71 +266,77 @@ input[type="number"] {
     margin-top: 6px;
 }
 
-/* ══════════════════════════════════════════
-   MOBILE  (max-width: 768px)
-   Streamlit columns do NOT auto-stack, so
-   we force full-width via CSS override.
-══════════════════════════════════════════ */
-@media (max-width: 768px) {
+/* ══ AUTH STYLES ══ */
+.logo-ring {
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(34,197,94,0.3), rgba(34,197,94,0.05));
+    border: 2px solid rgba(34,197,94,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 24px;
+    animation: pulse-ring 2.5s ease-in-out infinite;
+    font-size: 52px;
+}
 
-    /* Stack ALL columns to full width */
+@keyframes pulse-ring {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+    50%       { box-shadow: 0 0 0 20px rgba(34,197,94,0); }
+}
+
+@keyframes fade-up {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.anim-1 { animation: fade-up 0.6s ease forwards; }
+.anim-2 { animation: fade-up 0.6s 0.15s ease forwards; opacity: 0; }
+.anim-3 { animation: fade-up 0.6s 0.30s ease forwards; opacity: 0; }
+.anim-4 { animation: fade-up 0.6s 0.45s ease forwards; opacity: 0; }
+.anim-5 { animation: fade-up 0.6s 0.60s ease forwards; opacity: 0; }
+
+.auth-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #9ca3af;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+    display: block;
+}
+
+/* ══ MOBILE ══ */
+@media (max-width: 768px) {
     [data-testid="column"] {
         width: 100% !important;
         flex: 1 1 100% !important;
         min-width: 100% !important;
     }
-
-    /* Smaller page padding */
     .block-container {
         padding-left: 0.75rem !important;
         padding-right: 0.75rem !important;
     }
-
-    /* Headings */
     h1 { font-size: 22px !important; }
     h2 { font-size: 18px !important; }
     h3 { font-size: 16px !important; }
-
-    /* Bigger tap targets for buttons */
     .stButton > button {
         min-height: 56px !important;
         font-size: 16px !important;
     }
-
-    /* Number inputs */
     input[type="number"] {
         height: 52px !important;
         font-size: 16px !important;
     }
-
-    /* Sidebar hint */
     .mobile-hint { display: block !important; }
-
-    /* Metric cards full width on mobile */
-    [data-testid="stMetric"] {
-        padding: 12px !important;
-    }
-
-    /* Reduce chart height on mobile */
-    .js-plotly-plot .svg-container {
-        max-height: 280px;
-    }
-
-    /* Qualitative badges wrap nicely */
-    .qual-badge {
-        display: block;
-        margin-bottom: 6px;
-    }
-
-    /* Recovery cards */
-    .recovery-card {
-        padding: 12px 14px;
-    }
+    [data-testid="stMetric"] { padding: 12px !important; }
+    .js-plotly-plot .svg-container { max-height: 280px; }
+    .qual-badge { display: block; margin-bottom: 6px; }
+    .recovery-card { padding: 12px 14px; }
+    .logo-ring { width: 88px; height: 88px; font-size: 40px; }
 }
 
-/* Hide mobile hint on desktop */
 .mobile-hint { display: none; }
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -273,18 +344,25 @@ input[type="number"] {
 # SESSION STATE
 # ─────────────────────────────────────────────
 
-if "wellness_result" not in st.session_state: st.session_state.wellness_result = None
-if "menu"            not in st.session_state: st.session_state.menu            = " Beranda"
-if "recovery_checks" not in st.session_state: st.session_state.recovery_checks = {}
-if "confirm_delete"  not in st.session_state: st.session_state.confirm_delete  = False
-if "face_result"     not in st.session_state: st.session_state.face_result     = None
+defaults = {
+    "wellness_result":  None,
+    "menu":             "Beranda",
+    "recovery_checks":  {},
+    "confirm_delete":   False,
+    "face_result":      None,
+    "logged_in":        False,
+    "user":             None,
+    "auth_screen":      "welcome",  # welcome | login | register
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 if "progress_history" not in st.session_state:
     st.session_state.progress_history = (
         pd.read_csv(HISTORY_FILE).to_dict("records")
         if os.path.exists(HISTORY_FILE) else []
     )
-
 if "mood_history" not in st.session_state:
     st.session_state.mood_history = (
         pd.read_csv(MOOD_FILE).to_dict("records")
@@ -406,14 +484,13 @@ def require_wellness_check():
 
 
 def recovery_plan_tabs(challenges_by_cat, prefix):
-    """Tabbed recovery plan cards with checkboxes and progress."""
-    tabs      = st.tabs(["📵Digital", "🏃Fisik", "🧠Mental"])
+    tabs      = st.tabs(["📵 Digital", "🏃 Fisik", "🧠 Mental"])
     cat_names = ["Digital", "Fisik", "Mental"]
     for tab, cat in zip(tabs, cat_names):
         with tab:
             items = challenges_by_cat.get(cat, [])
             if not items:
-                st.info(f"Tidak ada rekomendasi {cat} untuk kondisi Anda saat ini. ")
+                st.info(f"Tidak ada rekomendasi {cat} untuk kondisi Anda saat ini.")
                 continue
             done = 0
             for i, (icon, text, duration) in enumerate(items):
@@ -426,7 +503,7 @@ def recovery_plan_tabs(challenges_by_cat, prefix):
                         st.session_state.recovery_checks[key] = new_val
                         st.rerun()
                 with txt_col:
-                    strike = "text-decoration:line-through;opacity:0.5;" if checked else ""
+                    strike   = "text-decoration:line-through;opacity:0.5;" if checked else ""
                     card_cls = "recovery-card recovery-card-done" if checked else "recovery-card recovery-card-todo"
                     st.markdown(f"""
                     <div class="{card_cls}">
@@ -443,20 +520,252 @@ def recovery_plan_tabs(challenges_by_cat, prefix):
             if pct == 100:
                 st.success("🎉 Semua challenge hari ini selesai! Luar biasa!")
 
-# ─────────────────────────────────────────────
-# SIDEBAR NAVIGATION
-# ─────────────────────────────────────────────
 
-st.sidebar.markdown("## Recovera")
-st.sidebar.markdown("<hr style='border-color:#1f2937;margin:8px 0 14px;'>", unsafe_allow_html=True)
+# ══════════════════════════════════════════════════════
+#  AUTH SCREENS
+# ══════════════════════════════════════════════════════
 
-# Mobile hint — visible on small screens via CSS
+def show_welcome():
+    st.markdown("""
+    <div style="text-align:center;padding:48px 16px 24px;">
+        <div class="logo-ring anim-1">🌿</div>
+        <h1 class="anim-2" style="
+            font-family:'Syne',sans-serif;
+            font-size:clamp(38px,8vw,68px);
+            font-weight:800;
+            background:linear-gradient(135deg,#ffffff 0%,#a3e635 50%,#22c55e 100%);
+            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+            background-clip:text;line-height:1.1;margin:0 0 14px;">
+            Recovera
+        </h1>
+        <p class="anim-3" style="
+            font-size:clamp(15px,3vw,19px);
+            color:#9CA3AF;
+            max-width:420px;
+            margin:0 auto 10px;
+            line-height:1.8;">
+            Deteksi kelelahan digital.<br>
+            <b style="color:#D1D5DB;">Pulihkan mental</b> — mulai hari ini.
+        </p>
+        <div class="anim-4" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:20px 0 36px;">
+            <div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);
+                        border-radius:20px;padding:6px 16px;font-size:12px;color:#86EFAC;">
+                🧠 Deteksi Kelelahan
+            </div>
+            <div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.25);
+                        border-radius:20px;padding:6px 16px;font-size:12px;color:#93C5FD;">
+                📊 Analisis Digital
+            </div>
+            <div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.25);
+                        border-radius:20px;padding:6px 16px;font-size:12px;color:#C4B5FD;">
+                🌿 Recovery Plan
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
+        st.markdown('<div class="anim-5">', unsafe_allow_html=True)
+        if st.button("🚀  Masuk ke Akun", use_container_width=True):
+            st.session_state.auth_screen = "login"
+            st.rerun()
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        if st.button("✨  Daftar Akun Baru", use_container_width=True):
+            st.session_state.auth_screen = "register"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown("""
+    <p style="text-align:center;color:#374151;font-size:12px;margin-top:32px;">
+        Gratis · Tanpa iklan · Data tersimpan lokal
+    </p>
+    """, unsafe_allow_html=True)
+
+
+def show_login():
+    col_back, _ = st.columns([1, 4])
+    with col_back:
+        if st.button("← Kembali"):
+            st.session_state.auth_screen = "welcome"
+            st.rerun()
+
+    st.markdown("""
+    <div style="text-align:center;padding:24px 16px 12px;">
+        <div style="font-size:40px;margin-bottom:12px;">🌿</div>
+        <h2 style="font-family:'Syne',sans-serif;font-weight:800;color:white;
+                   margin:0 0 6px;font-size:clamp(22px,5vw,30px);">
+            Selamat Datang Kembali
+        </h2>
+        <p style="color:#6B7280;font-size:14px;margin:0 0 28px;">
+            Masuk ke akun Recovera kamu
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    _, mid, _ = st.columns([1, 3, 1])
+    with mid:
+        with st.form("login_form"):
+            st.markdown('<span class="auth-label">Username atau Email</span>', unsafe_allow_html=True)
+            identifier = st.text_input("", placeholder="johndoe / john@email.com",
+                                       label_visibility="collapsed", key="li_id")
+            st.markdown('<span class="auth-label" style="margin-top:14px;display:block;">Password</span>',
+                        unsafe_allow_html=True)
+            password = st.text_input("", type="password", placeholder="Masukkan password",
+                                     label_visibility="collapsed", key="li_pw")
+            submitted = st.form_submit_button("Masuk →", use_container_width=True)
+
+        if submitted:
+            if not identifier or not password:
+                st.error("Isi semua kolom terlebih dahulu.")
+            else:
+                ok, user = login_user(identifier, password)
+                if ok:
+                    st.session_state.logged_in  = True
+                    st.session_state.user       = user
+                    st.session_state.auth_screen = "welcome"
+                    st.success(f"Halo, {user['full_name'] or user['username']}! 👋")
+                    st.rerun()
+                else:
+                    st.error("Username/email atau password salah.")
+
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;color:#6B7280;font-size:14px;'>Belum punya akun?</p>",
+                    unsafe_allow_html=True)
+        if st.button("Daftar Sekarang", use_container_width=True, key="go_register"):
+            st.session_state.auth_screen = "register"
+            st.rerun()
+
+
+def show_register():
+    col_back, _ = st.columns([1, 4])
+    with col_back:
+        if st.button("← Kembali"):
+            st.session_state.auth_screen = "welcome"
+            st.rerun()
+
+    st.markdown("""
+    <div style="text-align:center;padding:24px 16px 12px;">
+        <div style="font-size:40px;margin-bottom:12px;">✨</div>
+        <h2 style="font-family:'Syne',sans-serif;font-weight:800;color:white;
+                   margin:0 0 6px;font-size:clamp(22px,5vw,30px);">
+            Buat Akun Baru
+        </h2>
+        <p style="color:#6B7280;font-size:14px;margin:0 0 28px;">Gratis. Selamanya.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    _, mid, _ = st.columns([1, 3, 1])
+    with mid:
+        with st.form("register_form"):
+            st.markdown('<span class="auth-label">Nama Lengkap</span>', unsafe_allow_html=True)
+            full_name = st.text_input("", placeholder="Nama kamu",
+                                      label_visibility="collapsed", key="rg_name")
+
+            st.markdown('<span class="auth-label" style="margin-top:12px;display:block;">Username</span>',
+                        unsafe_allow_html=True)
+            username = st.text_input("", placeholder="Huruf kecil, tanpa spasi",
+                                     label_visibility="collapsed", key="rg_user")
+
+            st.markdown('<span class="auth-label" style="margin-top:12px;display:block;">Email</span>',
+                        unsafe_allow_html=True)
+            email = st.text_input("", placeholder="contoh@email.com",
+                                  label_visibility="collapsed", key="rg_email")
+
+            st.markdown('<span class="auth-label" style="margin-top:12px;display:block;">Password</span>',
+                        unsafe_allow_html=True)
+            password = st.text_input("", type="password", placeholder="Minimal 6 karakter",
+                                     label_visibility="collapsed", key="rg_pw")
+
+            st.markdown('<span class="auth-label" style="margin-top:12px;display:block;">Konfirmasi Password</span>',
+                        unsafe_allow_html=True)
+            password2 = st.text_input("", type="password", placeholder="Ulangi password",
+                                      label_visibility="collapsed", key="rg_pw2")
+
+            submitted = st.form_submit_button("Daftar →", use_container_width=True)
+
+        if submitted:
+            errors = []
+            if not full_name:                      errors.append("Nama lengkap wajib diisi.")
+            if not username or len(username) < 3:  errors.append("Username minimal 3 karakter.")
+            if " " in username:                    errors.append("Username tidak boleh ada spasi.")
+            if not email or "@" not in email:      errors.append("Email tidak valid.")
+            if len(password) < 6:                  errors.append("Password minimal 6 karakter.")
+            if password != password2:              errors.append("Password tidak cocok.")
+
+            if errors:
+                for e in errors:
+                    st.error(e)
+            else:
+                ok, msg = register_user(username, email, password, full_name)
+                if ok:
+                    st.success("✅ " + msg + " Silakan masuk.")
+                    st.session_state.auth_screen = "login"
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;color:#6B7280;font-size:14px;'>Sudah punya akun?</p>",
+                    unsafe_allow_html=True)
+        if st.button("Masuk", use_container_width=True, key="go_login"):
+            st.session_state.auth_screen = "login"
+            st.rerun()
+
+
+# ══════════════════════════════════════════════════════
+#  AUTH GATE — WAJIB sebelum sidebar & konten apapun
+# ══════════════════════════════════════════════════════
+
+if not st.session_state.logged_in:
+    screen = st.session_state.auth_screen
+    if screen == "login":
+        show_login()
+    elif screen == "register":
+        show_register()
+    else:
+        show_welcome()
+    st.stop()   # ← STOP di sini; kode di bawah tidak akan dieksekusi
+
+
+# ══════════════════════════════════════════════════════
+#  SIDEBAR  (hanya muncul setelah login)
+# ══════════════════════════════════════════════════════
+
+user         = st.session_state.user
+display_name = user.get("full_name") or user.get("username", "User")
+
+st.sidebar.markdown("## 🌿 Recovera")
+st.sidebar.markdown("<hr style='border-color:#1f2937;margin:8px 0 12px;'>", unsafe_allow_html=True)
+
+# User chip
+st.sidebar.markdown(f"""
+<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);
+            border-radius:12px;padding:10px 14px;margin-bottom:14px;
+            display:flex;align-items:center;gap:10px;">
+    <div style="background:linear-gradient(135deg,#22c55e,#16a34a);
+                border-radius:50%;width:34px;height:34px;min-width:34px;
+                display:flex;align-items:center;justify-content:center;
+                font-size:14px;font-weight:700;color:white;">
+        {display_name[0].upper()}
+    </div>
+    <div style="overflow:hidden;">
+        <p style="color:white;font-size:14px;font-weight:600;margin:0;
+                  line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            {display_name}
+        </p>
+        <p style="color:#6b7280;font-size:11px;margin:0;">@{user.get('username','')}</p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 st.sidebar.markdown(
     "<p class='mobile-hint' style='color:#6b7280;font-size:12px;padding:0 4px 10px;'>"
     "📱 Tap ☰ di pojok kiri atas untuk navigasi</p>",
     unsafe_allow_html=True,
 )
 
+# Menu navigation — urutan baru
 for item in MENU_ITEMS:
     is_active = st.session_state.menu == item
     label     = f"**{item}**" if is_active else item
@@ -464,8 +773,8 @@ for item in MENU_ITEMS:
         st.session_state.menu = item
         st.rerun()
 
-# Sidebar: clock
 st.sidebar.markdown("<hr style='border-color:#1f2937;margin:14px 0 8px;'>", unsafe_allow_html=True)
+
 now_nav = datetime.now()
 st.sidebar.markdown(
     f"<div style='color:#6b7280;font-size:12px;padding:4px 8px;line-height:1.8;'>"
@@ -474,7 +783,14 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
+st.sidebar.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+if st.sidebar.button("🚪 Keluar", use_container_width=True, key="logout_btn"):
+    for k in list(st.session_state.keys()):
+        del st.session_state[k]
+    st.rerun()
+
 menu = st.session_state.menu
+
 
 # ═════════════════════════════════════════════
 # PAGE: BERANDA
@@ -482,7 +798,6 @@ menu = st.session_state.menu
 
 if menu == "Beranda":
 
-    # ── Hero Section ────────────────────────────────────────────────────────
     st.markdown("""
     <div style="text-align:center;padding:48px 16px 32px;">
         <div style="display:inline-block;background:rgba(34,197,94,0.12);
@@ -492,7 +807,8 @@ if menu == "Beranda":
                 ✦ DIGITAL WELLNESS TRACKER
             </span>
         </div>
-        <h1 style="font-size:clamp(32px,6vw,58px);font-weight:800;
+        <h1 style="font-family:'Syne',sans-serif;
+                   font-size:clamp(32px,6vw,58px);font-weight:800;
                    background:linear-gradient(135deg,#ffffff 0%,#a3e635 50%,#22c55e 100%);
                    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
                    background-clip:text;line-height:1.15;margin:0 0 16px;">
@@ -500,7 +816,7 @@ if menu == "Beranda":
         </h1>
         <p style="font-size:clamp(15px,2.5vw,18px);color:#9CA3AF;max-width:520px;
                   margin:0 auto 28px;line-height:1.8;">
-            Tanpa sadar, HP di tanganmu mungkin sedang menguras energi mental yang kamu butuhkan. 
+            Tanpa sadar, HP di tanganmu mungkin sedang menguras energi mental yang kamu butuhkan.
             <b style="color:#D1D5DB;">Recovera</b> membantumu mendeteksinya — dan memulihkannya.
         </p>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
@@ -520,38 +836,28 @@ if menu == "Beranda":
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Pertanyaan Penasaran ─────────────────────────────────────────────────
     st.markdown("""
     <div style="background:linear-gradient(135deg,#111827,#1a2035);
-                border:1px solid #1f2937;border-radius:20px;padding:28px 24px;
-                margin-bottom:20px;">
+                border:1px solid #1f2937;border-radius:20px;padding:28px 24px;margin-bottom:20px;">
         <p style="color:#6B7280;font-size:12px;font-weight:700;letter-spacing:2px;
                   text-transform:uppercase;margin:0 0 16px;">Coba Jawab Jujur...</p>
         <div style="display:grid;gap:10px;">
-            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;
-                        border-left:3px solid #22c55e;display:flex;align-items:center;gap:12px;">
-                <span style="font-size:20px;"></span>
+            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;border-left:3px solid #22c55e;">
                 <p style="color:#D1D5DB;font-size:15px;margin:0;line-height:1.6;">
                     Kamu buka HP sebelum bangun dari kasur tadi pagi?
                 </p>
             </div>
-            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;
-                        border-left:3px solid #F59E0B;display:flex;align-items:center;gap:12px;">
-                <span style="font-size:20px;"></span>
+            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;border-left:3px solid #F59E0B;">
                 <p style="color:#D1D5DB;font-size:15px;margin:0;line-height:1.6;">
                     Pernah merasa lelah padahal tidak melakukan apa-apa selain rebahan scroll?
                 </p>
             </div>
-            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;
-                        border-left:3px solid #EF4444;display:flex;align-items:center;gap:12px;">
-                <span style="font-size:20px;"></span>
+            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;border-left:3px solid #EF4444;">
                 <p style="color:#D1D5DB;font-size:15px;margin:0;line-height:1.6;">
                     Susah fokus lebih dari 10 menit tanpa tergoda buka notifikasi?
                 </p>
             </div>
-            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;
-                        border-left:3px solid #A855F7;display:flex;align-items:center;gap:12px;">
-                <span style="font-size:20px;"></span>
+            <div style="background:#0f172a;border-radius:12px;padding:14px 16px;border-left:3px solid #A855F7;">
                 <p style="color:#D1D5DB;font-size:15px;margin:0;line-height:1.6;">
                     Tidur malam tapi otak masih "nyala" dan sulit berhenti berpikir?
                 </p>
@@ -560,7 +866,7 @@ if menu == "Beranda":
         <div style="background:rgba(34,197,94,0.08);border:1px dashed rgba(34,197,94,0.3);
                     border-radius:12px;padding:14px 16px;margin-top:16px;text-align:center;">
             <p style="color:#86EFAC;font-size:14px;margin:0;line-height:1.7;">
-                Kalau kamu mengangguk untuk 2 atau lebih pertanyaan di atas — 
+                Kalau kamu mengangguk untuk 2 atau lebih pertanyaan di atas —
                 <b>otakmu mungkin sedang kelelahan digital.</b><br>
                 <span style="color:#6B7280;">Recovera bisa membantu kamu memahami dan memulihkannya.</span>
             </p>
@@ -568,7 +874,6 @@ if menu == "Beranda":
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Statistik Fakta ──────────────────────────────────────────────────────
     st.markdown("""
     <p style="color:#6B7280;font-size:12px;font-weight:700;letter-spacing:2px;
               text-transform:uppercase;margin:0 0 12px;">Fakta yang Perlu Kamu Tahu</p>
@@ -585,13 +890,11 @@ if menu == "Beranda":
             st.markdown(f"""
             <div style="background:#111827;border:1px solid #1f2937;border-radius:16px;
                         padding:20px 16px;text-align:center;height:100%;">
-                <p style="font-size:32px;font-weight:800;color:{color};margin:0 0 8px;
-                          line-height:1;">{val}</p>
+                <p style="font-size:32px;font-weight:800;color:{color};margin:0 0 8px;line-height:1;">{val}</p>
                 <p style="font-size:13px;color:#9CA3AF;margin:0;line-height:1.6;">{desc}</p>
             </div>
             """, unsafe_allow_html=True)
 
-    # ── Cara Kerja Recovera ──────────────────────────────────────────────────
     st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
     st.markdown("""
     <p style="color:#6B7280;font-size:12px;font-weight:700;letter-spacing:2px;
@@ -599,25 +902,16 @@ if menu == "Beranda":
     """, unsafe_allow_html=True)
 
     steps = [
-        ("01", "Daily Check", "#3B82F6",
-         "Isi kondisi harianmu dalam 2 menit — waktu layar, tidur, stres, olahraga.",
-         "Langsung dapat hasil analisis kondisi mentalmu hari ini."),
-        ("02", "Analisis AI", "#22c55e",
-         "Model ML kami membaca polamu dan menghitung seberapa besar risiko kelelahan mental.",
-         "Bukan sekadar kuis — ini analisis berbasis data nyata."),
-        ("03", "Recovery Plan", "#A855F7",
-         "Dapat rekomendasi recovery yang disesuaikan dengan kondisimu — bukan tips generik.",
-         "Digital detox, olahraga, meditasi — semua terstruktur untukmu."),
-        ("04", "Journey Tracker", "#F59E0B",
-         "Pantau perkembanganmu dari waktu ke waktu. Lihat apakah kondisimu membaik.",
-         "Setiap langkah kecil tercatat dan terlihat."),
+        ("01", "Face Check",     "#EC4899", "Mulai dengan scan ekspresi wajahmu — kamera mendeteksi sinyal kelelahan emosional secara instan.",  "Tidak perlu isi apapun. Cukup tatap kamera, Recovera baca kondisimu."),
+        ("02", "Daily Check",    "#3B82F6", "Lengkapi dengan data harianmu — waktu layar, tidur, stres, dan olahraga dalam 2 menit.",             "Kombinasi Face Check + Daily Check menghasilkan analisis yang jauh lebih akurat."),
+        ("03", "Analisis AI",    "#22c55e", "Model ML kami memproses semua data dan menghitung risiko kelelahan mentalmu hari ini.",               "Bukan sekadar kuis — ini analisis berbasis data nyata dari dua sumber sekaligus."),
+        ("04", "Recovery Plan",  "#A855F7", "Dapat rencana recovery yang dipersonalisasi sesuai kondisimu — bukan tips generik.",                  "Digital detox, olahraga, meditasi — semua terstruktur dan bisa kamu centang."),
+        ("05", "Journey Tracker","#F59E0B", "Pantau perkembanganmu dari waktu ke waktu. Lihat tren kondisi mentalmu membaik.",                    "Setiap langkah kecil tercatat — mood harian, streak recovery, grafik progres."),
     ]
-
     for num, title, color, desc, highlight in steps:
         st.markdown(f"""
         <div style="background:#111827;border:1px solid #1f2937;border-radius:16px;
-                    padding:18px 20px;margin-bottom:10px;
-                    display:flex;align-items:flex-start;gap:16px;">
+                    padding:18px 20px;margin-bottom:10px;display:flex;align-items:flex-start;gap:16px;">
             <div style="background:{color}22;border:1px solid {color}44;border-radius:10px;
                         min-width:44px;height:44px;display:flex;align-items:center;
                         justify-content:center;font-size:13px;font-weight:800;color:{color};">
@@ -631,7 +925,6 @@ if menu == "Beranda":
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Bar Chart Pengaruh Digital ────────────────────────────────────────────
     st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
     st.markdown("""
     <p style="color:#6B7280;font-size:12px;font-weight:700;letter-spacing:2px;
@@ -642,36 +935,25 @@ if menu == "Beranda":
     with pie_col:
         PIE_LABELS = ["🔴 Near-Burnout", "🟡 Strained", "🟢 Refreshed"]
         PIE_VALUES = [53, 33, 14]
-        PIE_COLORS = {
-            "🔴 Near-Burnout": "#ef4444",
-            "🟡 Strained":     "#f59e0b",
-            "🟢 Refreshed":    "#22c55e",
-        }
+        PIE_COLORS = {"🔴 Near-Burnout": "#ef4444", "🟡 Strained": "#f59e0b", "🟢 Refreshed": "#22c55e"}
         fig_pie = px.pie(names=PIE_LABELS, values=PIE_VALUES, hole=0.55,
                          color=PIE_LABELS, color_discrete_map=PIE_COLORS)
-        fig_pie.update_traces(
-            textposition="inside", textinfo="percent+label",
-            pull=[0.04, 0.02, 0.02],
-        )
+        fig_pie.update_traces(textposition="inside", textinfo="percent+label", pull=[0.04, 0.02, 0.02])
         fig_pie.update_layout(
             height=320, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             font=dict(color="white", size=12),
             legend=dict(orientation="h", y=-0.15, x=0.05),
             margin=dict(t=10, b=20, l=10, r=10),
-            annotations=[dict(
-                text="<b>53%</b><br>Near-Burnout",
-                x=0.5, y=0.5, showarrow=False,
-                font=dict(size=13, color="white"),
-            )],
+            annotations=[dict(text="<b>53%</b><br>Near-Burnout", x=0.5, y=0.5,
+                              showarrow=False, font=dict(size=13, color="white"))],
         )
         st.plotly_chart(fig_pie, use_container_width=True, config=PLOTLY_CFG)
 
     with sum_col:
         st.markdown("""
-        <div style="background:#111827;border:1px solid #1f2937;border-radius:16px;
-                    padding:20px;height:100%;">
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:16px;padding:20px;height:100%;">
             <p style="color:#9CA3AF;font-size:13px;margin:0 0 14px;line-height:1.6;">
-                Dari data pengguna Recovera, lebih dari separuh berada di kondisi 
+                Dari data pengguna Recovera, lebih dari separuh berada di kondisi
                 <b style="color:#ef4444;">Near-Burnout</b> — tanpa mereka sadari sepenuhnya.
             </p>
             <div style="margin-bottom:12px;">
@@ -703,13 +985,12 @@ if menu == "Beranda":
             </div>
             <p style="color:#86EFAC;font-size:13px;margin:0;line-height:1.7;
                       background:rgba(34,197,94,0.08);border-radius:10px;padding:10px 12px;">
-                ✦ Hanya <b>14%</b> pengguna yang benar-benar dalam kondisi sehat secara digital. 
+                ✦ Hanya <b>14%</b> pengguna yang benar-benar dalam kondisi sehat secara digital.
                 Kamu ada di kelompok mana?
             </p>
         </div>
         """, unsafe_allow_html=True)
 
-    # ── CTA Akhir ────────────────────────────────────────────────────────────
     st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
     st.markdown("""
     <div style="background:linear-gradient(135deg,#052e16,#14532d,#166534);
@@ -719,583 +1000,15 @@ if menu == "Beranda":
             Mau tahu kondisi otakmu hari ini?
         </p>
         <p style="font-size:15px;color:#86EFAC;margin:0 0 8px;line-height:1.7;">
-            Butuh kurang dari <b>2 menit</b> untuk melakukan Daily Check pertamamu.<br>
-            Tidak perlu daftar. Tidak perlu bayar. Langsung pakai.
+            Mulai dengan <b>Face Check</b> — scan wajahmu dalam hitungan detik.<br>
+            Lanjut ke <b>Daily Check</b> untuk analisis yang lebih lengkap dan akurat.
         </p>
         <p style="font-size:13px;color:#4ADE80;margin:0;">
-            👈 Klik <b>Daily Check</b> di sidebar untuk mulai
+            👈 Klik <b>Face Check</b> di sidebar untuk memulai
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-# ═════════════════════════════════════════════
-# PAGE: DAILY CHECK
-# ═════════════════════════════════════════════
-
-elif menu == "Daily Check":
-
-    st.header("Daily Mind Check")
-
-    # ── Timestamp ─────────────────────────────
-    now = datetime.now()
-    st.markdown(
-        f"<div style='background:#111827;border:1px solid #1f2937;border-radius:12px;"
-        f"padding:10px 16px;display:inline-block;margin-bottom:14px;font-size:14px;'>"
-        f"📅 <b>{now.strftime('%A, %d %B %Y')}</b> &nbsp;|&nbsp; 🕐 <b>{now.strftime('%H:%M')}</b>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("Isi aktivitas harian Anda untuk melihat kondisi keseimbangan mental dan penggunaan digital sehari-hari.")
-
-    with st.form("fatigue_form"):
-
-        # ── Numeric inputs — 2 col desktop, stacks to 1 col mobile via CSS ──
-        col1, col2 = st.columns(2)
-        with col1:
-            screen_time  = st.number_input("Durasi Penggunaan Gadget (jam/hari)",
-                min_value=0.0, max_value=24.0, value=7.0, step=0.5,
-                help="Contoh: 8.0 = 8 jam penggunaan gadget hari ini")
-            sleep_hours  = st.number_input("Durasi Tidur (jam)",
-                min_value=0.0, max_value=12.0, value=6.0, step=0.5,
-                help="Contoh: 7.5 = tidur 7 jam 30 menit")
-            stress_level = st.number_input("Tingkat Stres (skala 1–10)",
-                min_value=1, max_value=10, value=5, step=1,
-                help="1 = sangat santai  |  10 = sangat tertekan")
-        with col2:
-            social_media = st.number_input("Penggunaan Media Sosial (jam/hari)",
-                min_value=0.0, max_value=15.0, value=4.0, step=0.5,
-                help="Total waktu di TikTok, Instagram, X, dll.")
-            productivity = st.number_input("Produktivitas Hari Ini (skala 1–100)",
-                min_value=1, max_value=100, value=70, step=5,
-                help="1 = tidak produktif  |  100 = sangat produktif")
-            exercise     = st.number_input("Durasi Olahraga (menit)",
-                min_value=0, max_value=300, value=30, step=5,
-                help="Total menit olahraga atau aktivitas fisik hari ini")
-
-        # ── Pertanyaan Kualitatif
-        # ── Gunakan selectbox (mobile-safe, tidak horizontal=True) ──────────
-        st.markdown("---")
-        st.markdown("#### Pertanyaan Kualitatif")
-        st.caption("Jawab berdasarkan kondisi Anda hari ini — digunakan untuk memperkaya analisis.")
-
-        qa1, qa2 = st.columns(2)
-        with qa1:
-            q_focus = st.selectbox(
-                "Apakah Anda merasa sulit fokus hari ini?",
-                ["Tidak", "Sedikit", "Ya, cukup sulit", "Ya, sangat sulit"],
-            )
-            q_mood = st.selectbox(
-                "Bagaimana suasana hati Anda secara keseluruhan?",
-                ["Baik", "Biasa", "Kurang baik", "Sangat buruk"],
-            )
-        with qa2:
-            q_energy = st.selectbox(
-                "Bagaimana level energi Anda hari ini?",
-                ["Penuh energi", "Cukup", "Mudah lelah", "Sangat lelah"],
-            )
-            q_digital = st.selectbox(
-                "Seberapa sering terganggu notifikasi / gadget hari ini?",
-                ["Tidak sama sekali", "Sedikit", "Cukup sering", "Terus-menerus"],
-            )
-
-        submitted = st.form_submit_button("Analisis Kelelahan")
-
-    if submitted:
-        # ── Multi-step loading ─────────────────
-        prog_bar = st.progress(0)
-        status   = st.empty()
-
-        status.info("Membaca data aktivitas Anda...")
-        prog_bar.progress(25)
-
-        input_data = pd.DataFrame([{
-            "screen_time":       screen_time,
-            "sleep_hours":       sleep_hours,
-            "stress_level":      stress_level,
-            "digital_balance":   50,
-            "physical_activity": exercise,
-            "work_hours":        8,
-        }])
-
-        status.info("Menjalankan model analisis...")
-        prog_bar.progress(60)
-
-        prediction      = model.predict(input_data)[0]
-        fatigue_percent = compute_fatigue_percent(screen_time, sleep_hours, stress_level)
-
-        # Qualitative score adjustment
-        qual_score = 0
-        if q_focus   in ["Ya, cukup sulit", "Ya, sangat sulit"]: qual_score += 5
-        if q_mood    in ["Kurang baik", "Sangat buruk"]:    qual_score += 5
-        if q_energy  in ["Mudah lelah", "Sangat lelah"]:    qual_score += 5
-        if q_digital in ["Cukup sering", "Terus-menerus"]:        qual_score += 5
-        fatigue_percent = min(fatigue_percent + qual_score, 95)
-
-        status.info("Menyimpan hasil dan menyiapkan rekomendasi...")
-        prog_bar.progress(90)
-
-        risk_label, risk_desc = fatigue_label(fatigue_percent)
-        recovery_score        = max(100 - fatigue_percent, 5)
-
-        st.session_state.wellness_result = {
-            "fatigue_percent": fatigue_percent,
-            "screen_time":     screen_time,
-            "sleep_hours":     sleep_hours,
-            "stress_level":    stress_level,
-            "exercise":        exercise,
-            "social_media":    social_media,
-            "productivity":    productivity,
-            "prediction":      prediction,
-            "q_focus":         q_focus,
-            "q_mood":          q_mood,
-            "q_energy":        q_energy,
-            "q_digital":       q_digital,
-        }
-        st.session_state.recovery_checks = {}
-
-        save_history({
-            "Date":         now.strftime("%d-%m-%Y %H:%M"),
-            "Fatigue Risk": fatigue_percent,
-            "Screen Time":  screen_time,
-            "Stress":       stress_level,
-            "Sleep":        sleep_hours,
-            "Exercise":     exercise,
-        })
-
-        prog_bar.progress(100)
-        status.success("✅ Analisis selesai!")
-
-        # ── Result metrics — 2×2 on mobile ────
-        st.subheader("Kondisi Digital Wellness Anda")
-        mc1, mc2 = st.columns(2)
-        with mc1:
-            st.metric("Fatigue Risk", f"{fatigue_percent}%",
-                      help="Tingkat risiko kelelahan mental 0–100%. Semakin tinggi semakin perlu perhatian.")
-        with mc2:
-            st.metric("Recovery Score", f"{recovery_score}%",
-                      help="Kebalikan Fatigue Risk — menunjukkan kapasitas pemulihan mental Anda saat ini.")
-        mc3, mc4 = st.columns(2)
-        with mc3:
-            st.metric("Kondisi ML", prediction)
-        with mc4:
-            cond = risk_label.split(" ", 1)[1] if " " in risk_label else risk_label
-            st.metric("Risiko", cond)
-
-        st.caption("💡 Recovery Score adalah kebalikan dari Fatigue Risk — keduanya saling berkaitan sebagai satu indikator kesehatan mental.")
-
-        st.progress(fatigue_percent)
-        st.info(f"{risk_label} — {risk_desc}")
-        st.plotly_chart(gauge_chart(fatigue_percent, "Estimasi Kondisi Mental"),
-                        use_container_width=True, config=PLOTLY_CFG)
-
-        # Qualitative badges
-        st.markdown("**Ringkasan Kualitatif:**")
-        badges = [
-            (q_focus,   "#6366f1"),
-            (q_mood,    "#ec4899"),
-            (q_energy,  "#f59e0b"),
-            (q_digital, "#ef4444"),
-        ]
-        badge_html = "".join(
-            f"<span class='qual-badge' style='background:{c}22;border:1px solid {c};color:{c};'>{t}</span>"
-            for t, c in badges
-        )
-        st.markdown(badge_html, unsafe_allow_html=True)
-
-        # ML prediction
-        PREDICTION_MAP = {
-            "Refreshed": ("🟢 Refreshed", "Kondisi mental Anda masih stabil, fokus masih terjaga, dan aktivitas digital belum memberikan tekanan kognitif berlebihan."),
-            "Strained":  ("🟡 Strained",  "Anda mulai mengalami tekanan mental dan kelelahan ringan akibat aktivitas digital dan stres harian."),
-        }
-        category, explanation = PREDICTION_MAP.get(
-            prediction,
-            ("🔴 Near-Burnout", "Kondisi mental Anda menunjukkan tanda-tanda kelelahan tinggi dan mendekati burnout. Disarankan segera melakukan recovery."),
-        )
-        st.markdown(f"## {category}")
-        st.warning(explanation)
-
-        # Recommendations
-        st.markdown("---")
-        st.header("Rekomendasi Aktivitas Recovery")
-        recs = []
-        if screen_time  > 8:  recs += ["Membaca buku fisik 20–30 menit.", "Jalan santai sore tanpa gadget.", "Duduk santai di area terbuka.", "Istirahat tanpa membuka media sosial."]
-        if stress_level > 7:  recs += ["Meditasi atau latihan pernapasan mindfulness.", "Dengarkan musik relaksasi.", "Luangkan waktu untuk relaksasi.", "Tulis catatan harian."]
-        if sleep_hours  < 6:  recs += ["Tidur lebih awal, hindari gadget sebelum tidur.", "Baca buku sebelum tidur.", "Ciptakan suasana kamar yang nyaman.", "Kurangi konten digital malam hari."]
-        if exercise     < 20: recs += ["Jogging ringan 15–20 menit.", "Bersepeda santai.", "Stretching di rumah.", "Tingkatkan berjalan kaki harian."]
-        if productivity < 60: recs += ["Buat jadwal aktivitas harian.", "Belajar santai Gunakan teknik Pomodoro.", "Kurangi distraksi digital saat kerja.", "Sisihkan waktu istirahat singkat."]
-
-        if not recs:
-            st.success("Kondisi digital wellness Anda masih baik. Pertahankan keseimbangan aktivitas digital, fisik, dan istirahat.")
-        else:
-            for r in list(dict.fromkeys(recs)):
-                st.success(r)
-
-        # Brain Recovery
-        st.markdown("---")
-        st.header("Kondisi Recovery Harian Anda")
-        brainrot_score = (
-            (30 if screen_time  > 8 else 0) +
-            (25 if social_media > 6 else 0) +
-            (25 if sleep_hours  < 6 else 0) +
-            (20 if stress_level > 7 else 0)
-        )
-        if brainrot_score < 30:   br_cat, br_desc = "🟢 Risiko Rendah",  "Pola aktivitas digital Anda masih relatif sehat."
-        elif brainrot_score < 60: br_cat, br_desc = "🟡 Risiko Sedang",  "Anda mulai menunjukkan gejala overstimulasi digital."
-        else:                     br_cat, br_desc = "🔴 Risiko Tinggi",  "Anda menunjukkan indikasi brainrot tinggi."
-
-        st.subheader(br_cat)
-        st.warning(br_desc)
-        st.markdown("### Rekomendasi Pemulihan Otak")
-
-        rec_brain = []
-        if screen_time  > 8:  rec_brain.append("📵 Lakukan pembatasan digital minimal 1–2 jam tanpa gadget.")
-        if social_media > 6:  rec_brain.append("📱 Kurangi konsumsi short-form content media sosial.")
-        if sleep_hours  < 6:  rec_brain.append("😴 Tingkatkan kualitas tidur menjadi 7–8 jam.")
-        if stress_level > 7:  rec_brain.append("🧘 Lakukan mindfulness atau relaksasi.")
-        if productivity < 60: rec_brain.append("🎯 Belajar santai dengan teknik deep work atau Pomodoro.")
-        if exercise     < 20: rec_brain.append("🏃 Lakukan olahraga ringan, seperti jalan kaki atau yoga.")
-
-        if not rec_brain:
-            st.success("Anda memiliki pola digital yang cukup sehat.")
-        else:
-            for item in rec_brain:
-                st.success(item)
-
-# ═════════════════════════════════════════════
-# PAGE: RECOVERY
-# ═════════════════════════════════════════════
-
-elif menu == "Recovery":
-
-    st.header("Recovery Center")
-    st.markdown(
-        "Recovery Center membantu Anda memahami kondisi keseimbangan digital, mengurangi overstimulasi, "
-        "serta memberikan rekomendasi recovery harian untuk menjaga fokus dan kesehatan mental."
-    )
-    st.markdown("---")
-
-    require_wellness_check()
-    data = st.session_state.wellness_result
-
-    fatigue_percent = data["fatigue_percent"]
-    screen_time     = data["screen_time"]
-    sleep_hours     = data["sleep_hours"]
-    stress_level    = data["stress_level"]
-    social_media    = data["social_media"]
-    exercise        = data["exercise"]
-    productivity    = data.get("productivity", 70)
-    prediction      = data["prediction"]
-    recovery_score  = max(100 - fatigue_percent, 5)
-
-    # AI Wellness Summary
-    st.header("AI Wellness Summary")
-    if fatigue_percent <= 35:
-        summary = f"Kondisi mental Anda masih cukup stabil. Penggunaan gadget sekitar {screen_time} jam/hari masih dalam batas aman."
-    elif fatigue_percent <= 65:
-        summary = f"Aktivitas digital harian mulai mempengaruhi fokus. Penggunaan gadget {screen_time} jam/hari, tidur {sleep_hours} jam, dan level stres sedang menunjukkan tanda kelelahan mental ringan."
-    else:
-        summary = f"Sistem mendeteksi risiko kelelahan mental tinggi. Penggunaan gadget {screen_time} jam/hari, kurang tidur, dan stres tinggi mempengaruhi keseimbangan mental Anda. Disarankan digital recovery segera."
-    st.info(summary)
-
-    # Dopamine Overload Meter
-    st.markdown("---")
-    st.header("Dopamine Overload Meter")
-
-    if prediction == "Refreshed":
-        dop_pct  = max(15, fatigue_percent - 10)
-        dop_stat = "🟢 Rendah"
-        dop_desc = f"Aktivitas digital Anda masih sehat. Penggunaan gadget {screen_time} jam/hari masih dalam batas aman."
-    elif prediction == "Strained":
-        dop_pct  = fatigue_percent
-        dop_stat = "🟡 Sedang"
-        dop_desc = f"Tanda-tanda overstimulasi digital ringan. Gadget {screen_time} jam/hari & media sosial {social_media} jam/hari mulai mempengaruhi fokus."
-    else:
-        dop_pct  = min(fatigue_percent + 5, 95)
-        dop_stat = "🔴 Tinggi"
-        dop_desc = "Overstimulasi digital tinggi terdeteksi. Aktivitas digital berlebihan dan kurang tidur mempengaruhi keseimbangan mental Anda secara signifikan."
-
-    # 2×2 metrics — mobile safe
-    dm1, dm2 = st.columns(2)
-    with dm1:
-        st.metric("Dopamine Overload", f"{dop_pct}%",
-                  help="Estimasi tingkat overstimulasi otak akibat konsumsi konten digital.")
-    with dm2:
-        st.metric("Recovery Readiness", f"{recovery_score}%",
-                  help="Kapasitas pemulihan mental Anda — berkaitan langsung dengan Fatigue Risk dari Daily Check.")
-
-    st.caption("💡 Recovery Score dan Fatigue Risk adalah dua sisi dari indikator yang sama — keduanya saling berkaitan.")
-    st.progress(dop_pct)
-    st.warning(f"{dop_stat} — {dop_desc}")
-    st.info("Semakin tinggi nilainya, semakin tinggi risiko overstimulasi digital akibat penggunaan gadget, media sosial, dan konten instan berlebihan.")
-    st.plotly_chart(gauge_chart(dop_pct, "Overstimulasi Digital", bar_color="#6366F1"),
-                    use_container_width=True, config=PLOTLY_CFG)
-
-    if recovery_score >= 70:   st.success("Kondisi recovery Anda cukup baik.")
-    elif recovery_score >= 40: st.warning("Recovery mental Anda perlu ditingkatkan.")
-    else:                      st.error("Kondisi mental Anda membutuhkan recovery lebih serius.")
-
-    # Daily Recovery Plan — tabbed cards
-    st.markdown("---")
-    st.header("Daily Recovery Plan")
-
-    if prediction == "Refreshed":
-        st.success("Kondisi mental Anda masih stabil. Berikut challenge ringan untuk menjaga keseimbangan digital:")
-    elif prediction == "Strained":
-        st.warning("Sistem mendeteksi gejala awal kelelahan mental. Berikut challenge untuk mengurangi overstimulasi digital:")
-    else:
-        st.error("Sistem mendeteksi risiko kelelahan mental tinggi. Berikut recovery plan yang disarankan:")
-
-    challenges_by_cat = {"Digital": [], "Fisik": [], "Mental": []}
-
-    # Digital
-    if screen_time > 8:
-        challenges_by_cat["Digital"] += [
-            ("📵", "Kurangi penggunaan gadget 1–2 jam dari biasanya", "Sepanjang hari"),
-            ("📚", "Baca buku fisik sebagai pengganti layar", "20–30 menit"),
-        ]
-    elif screen_time > 5:
-        challenges_by_cat["Digital"].append(("", "Satu sesi tanpa gadget", "30 menit"))
-    if social_media > 6:
-        challenges_by_cat["Digital"].append(("", "Hindari scrolling media sosial", "1 jam penuh"))
-    elif social_media > 3:
-        challenges_by_cat["Digital"].append(("", "Batasi konsumsi short-form content", "Hari ini"))
-    if fatigue_percent >= 75:
-        challenges_by_cat["Digital"].append(("", "Luangkan waktu di area terbuka tanpa gadget", "30 menit"))
-
-    # Fisik
-    if exercise < 15:
-        challenges_by_cat["Fisik"] += [
-            ("", "Jalan santai atau olahraga ringan", "20–30 menit"),
-            ("", "Stretching seluruh tubuh", "10 menit"),
-        ]
-    elif exercise < 30:
-        challenges_by_cat["Fisik"].append(("", "Stretching ringan", "10–15 menit"))
-    if sleep_hours < 4:
-        challenges_by_cat["Fisik"].append(("", "Tidur lebih awal — targetkan 7 jam", "Malam ini"))
-    elif sleep_hours < 6:
-        challenges_by_cat["Fisik"].append(("", "Hindari gadget sebelum tidur", "30 menit sebelum tidur"))
-
-    # Mental
-    if stress_level >= 8:
-        challenges_by_cat["Mental"] += [
-            ("", "Meditasi atau pernapasan 4-7-8", "15–20 menit"),
-            ("", "Tulis catatan harian untuk melepas tekanan", "10–15 menit"),
-        ]
-    elif stress_level >= 6:
-        challenges_by_cat["Mental"].append(("", "Dengarkan musik relaksasi tanpa media sosial", "20 menit"))
-    if fatigue_percent >= 75:
-        challenges_by_cat["Mental"].append(("", "Lakukan satu hal yang benar-benar Anda nikmati", "30 menit"))
-    if not challenges_by_cat["Mental"]:
-        challenges_by_cat["Mental"].append(("", "Pertahankan kebiasaan positif hari ini", "Sepanjang hari"))
-
-    recovery_plan_tabs(challenges_by_cat, prefix="rec")
-
-# ═════════════════════════════════════════════
-# PAGE: JOURNEY
-# ═════════════════════════════════════════════
-
-elif menu == "Journey":
-
-    st.header("Progress Tracker")
-
-    history    = st.session_state.progress_history
-    history_df = pd.DataFrame(history) if history else pd.DataFrame()
-
-    # Empty state
-    if history_df.empty:
-        st.markdown("""
-        <div class="empty-state">
-            <h2>Belum Ada Data Progress</h2>
-            <p>Mulai Daily Check pertama Anda untuk melihat perkembangan kondisi mental dari waktu ke waktu.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("Mulai Daily Check Pertama Saya"):
-            st.session_state.menu = "Daily Check"
-            st.rerun()
-        st.stop()
-
-    history_df["Check"] = range(1, len(history_df) + 1)
-
-    # ── Weekly Summary — 2×2 grid (mobile safe) ─
-    st.subheader("Ringkasan Mingguan")
-    if "Date" in history_df.columns:
-        try:
-            history_df["Date_parsed"] = pd.to_datetime(
-                history_df["Date"], format="%d-%m-%Y %H:%M", errors="coerce"
-            )
-            now_j      = datetime.now()
-            week_start = now_j - timedelta(days=7)
-            prev_start = now_j - timedelta(days=14)
-
-            this_week = history_df[history_df["Date_parsed"] >= week_start]
-            last_week = history_df[
-                (history_df["Date_parsed"] >= prev_start) &
-                (history_df["Date_parsed"] <  week_start)
-            ]
-            avg_this = this_week["Fatigue Risk"].mean() if not this_week.empty else None
-            avg_last = last_week["Fatigue Risk"].mean() if not last_week.empty else None
-
-            wc1, wc2 = st.columns(2)
-            with wc1:
-                if avg_this is not None:
-                    delta = f"{avg_this - avg_last:+.1f}%" if avg_last is not None else None
-                    st.metric("Rata-rata Fatigue Minggu Ini", f"{avg_this:.1f}%",
-                              delta=delta, delta_color="inverse",
-                              help="Nilai lebih rendah = kondisi lebih baik")
-                else:
-                    st.metric("Rata-rata Fatigue Minggu Ini", "—")
-            with wc2:
-                st.metric("Total Pemeriksaan", f"{len(history_df)} sesi")
-
-            wc3, wc4 = st.columns(2)
-            with wc3:
-                st.metric("Fatigue Terbaik", f"{history_df['Fatigue Risk'].min():.0f}%")
-            with wc4:
-                vals   = history_df["Fatigue Risk"].tolist()
-                streak = sum(1 for i in range(1, len(vals)) if vals[i] < vals[i - 1])
-                st.metric("Recovery Streak", f"{streak} sesi")
-        except Exception:
-            pass
-
-    # Progress chart
-    st.markdown("---")
-    fig_prog = px.line(
-        history_df, x="Check", y="Fatigue Risk",
-        markers=True, title="Perkembangan Risiko Kelelahan Mental",
-    )
-    fig_prog.update_traces(line_color="#22c55e", marker=dict(size=7, color="#22c55e"))
-    fig_prog.update_layout(
-        paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
-        font_color="white", height=380,
-        margin=dict(t=50, l=10, r=10, b=20),
-    )
-    st.plotly_chart(fig_prog, use_container_width=True, config=PLOTLY_CFG)
-
-    latest, first = history_df["Fatigue Risk"].iloc[-1], history_df["Fatigue Risk"].iloc[0]
-    if latest < first:    st.success("Kondisi mental Anda menunjukkan perkembangan positif. Risiko kelelahan mulai menurun.")
-    elif latest > first:  st.error("Risiko kelelahan mental Anda meningkat. Aktivitas digital dan stres mulai memberi dampak lebih besar.")
-    else:                 st.info("Kondisi mental Anda relatif stabil.")
-
-    # Best pattern insight
-    st.markdown("---")
-    st.subheader("Pola Kesehatan Terbaik Anda")
-    if all(c in history_df.columns for c in ["Sleep", "Exercise", "Fatigue Risk"]):
-        try:
-            best_df = history_df[
-                (pd.to_numeric(history_df["Sleep"],    errors="coerce") >= 7) &
-                (pd.to_numeric(history_df["Exercise"], errors="coerce") >= 30)
-            ]
-            if not best_df.empty:
-                avg_best = best_df["Fatigue Risk"].mean()
-                avg_all  = history_df["Fatigue Risk"].mean()
-                st.success(
-                    f"Kondisi terbaik Anda terjadi saat **tidur ≥ 7 jam** dan **olahraga ≥ 30 menit**. "
-                    f"Rata-rata fatigue: **{avg_best:.1f}%** "
-                    f"({avg_all - avg_best:.1f}% lebih baik dari rata-rata keseluruhan)."
-                )
-            else:
-                st.info("Belum cukup sesi dengan tidur ≥ 7 jam dan olahraga ≥ 30 menit untuk menampilkan pola terbaik.")
-        except Exception:
-            pass
-
-    # Riwayat table
-    st.markdown("---")
-    st.subheader("Riwayat Pemeriksaan")
-    st.dataframe(
-        history_df.drop(columns=["Date_parsed"], errors="ignore"),
-        use_container_width=True,
-    )
-
-    # Recovery Timeline
-    st.markdown("---")
-    st.subheader("Recovery Timeline")
-    if "Date" in history_df.columns:
-        fig_tl = px.line(history_df, x="Date", y="Fatigue Risk",
-                         markers=True, title="Perkembangan Risiko Mental Harian")
-        fig_tl.update_traces(line_color="#6366f1", marker=dict(size=6, color="#6366f1"))
-        fig_tl.update_layout(
-            paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
-            font=dict(color="white"), height=320,
-            margin=dict(t=50, l=10, r=10, b=40),
-            xaxis=dict(tickangle=-30),
-        )
-        st.plotly_chart(fig_tl, use_container_width=True, config=PLOTLY_CFG)
-
-    # Trend Mental
-    st.markdown("---")
-    st.subheader("Trend Mental")
-    if len(history_df) >= 2:
-        lv, pv = history_df["Fatigue Risk"].iloc[-1], history_df["Fatigue Risk"].iloc[-2]
-        if lv < pv:   st.success("Tingkat kelelahan mental Anda mulai berkurang. Digital wellness menunjukkan perkembangan positif.")
-        elif lv > pv: st.error("Risiko mental Anda meningkat. Disarankan meningkatkan recovery.")
-        else:         st.info("Kondisi mental Anda relatif stabil.")
-    else:
-        st.info("Belum cukup data untuk melihat trend.")
-
-    # Mood chart
-    st.markdown("---")
-    st.subheader("Visualisasi Mood Mingguan")
-    mood_history = st.session_state.mood_history
-    if mood_history:
-        mood_df = pd.DataFrame(mood_history)
-        mood_df["Date_parsed"] = pd.to_datetime(
-            mood_df["Date"], format="%d-%m-%Y %H:%M", errors="coerce"
-        )
-        mood_df["Week"]      = mood_df["Date_parsed"].dt.isocalendar().week.astype(str)
-        mood_df["MoodClean"] = mood_df["Mood"].str.replace(r"^\S+\s", "", regex=True)
-        mood_count = mood_df.groupby(["Week", "MoodClean"]).size().reset_index(name="Count")
-        fig_mood = px.bar(
-            mood_count, x="Week", y="Count", color="MoodClean", barmode="group",
-            title="Frekuensi Mood per Minggu",
-            color_discrete_sequence=["#22c55e", "#6366f1", "#f59e0b", "#ef4444", "#38bdf8"],
-        )
-        fig_mood.update_layout(
-            paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
-            font=dict(color="white"), height=320,
-            legend=dict(title="Mood", bgcolor="rgba(0,0,0,0)", orientation="h", y=-0.3),
-            margin=dict(t=50, l=10, r=10, b=60),
-        )
-        st.plotly_chart(fig_mood, use_container_width=True, config=PLOTLY_CFG)
-    else:
-        st.info("Belum ada data mood. Isi catatan harian di bawah untuk mulai melacak mood Anda.")
-
-    # Catatan Harian
-    st.markdown("---")
-    st.subheader("Catatan Harian")
-    mood      = st.selectbox("Mood Hari Ini",
-                              ["Bahagia", "Tenang", "Lelah", "Overwhelmed", "Stres"])
-    mood_note = st.text_area("Bagaimana kondisi Anda hari ini?",
-                              placeholder="Ceritakan kondisi Anda hari ini...")
-    if st.button("Simpan Catatan Harian"):
-        save_mood({
-            "Date":  datetime.now().strftime("%d-%m-%Y %H:%M"),
-            "Mood":  mood,
-            "Note":  mood_note,
-        })
-        st.success("Catatan Harian berhasil disimpan.")
-
-    # Hapus riwayat
-    st.markdown("---")
-    st.subheader("🗑 Kelola Data")
-    if not st.session_state.confirm_delete:
-        if st.button("🗑 Hapus Semua Riwayat Pemeriksaan"):
-            st.session_state.confirm_delete = True
-            st.rerun()
-    else:
-        st.error("Apakah Anda yakin ingin menghapus semua riwayat? Tindakan ini tidak dapat dibatalkan.")
-        cc1, cc2 = st.columns(2)
-        with cc1:
-            if st.button("✅ Ya, Hapus Semua"):
-                st.session_state.progress_history = []
-                st.session_state.confirm_delete   = False
-                if os.path.exists(HISTORY_FILE):
-                    os.remove(HISTORY_FILE)
-                st.success("Riwayat berhasil dihapus.")
-                st.rerun()
-        with cc2:
-            if st.button("❌ Batal"):
-                st.session_state.confirm_delete = False
-                st.rerun()
 
 # ═════════════════════════════════════════════
 # PAGE: FACE CHECK
@@ -1303,7 +1016,18 @@ elif menu == "Journey":
 
 elif menu == "Face Check":
 
-    st.header("Facial Mood & Fatigue Check")
+    st.markdown("""
+    <div style="text-align:center;padding:32px 16px 20px;">
+        <div style="display:inline-block;background:rgba(34,197,94,0.12);
+                    border:1px solid rgba(34,197,94,0.3);border-radius:30px;
+                    padding:6px 18px;margin-bottom:16px;">
+            <span style="color:#22c55e;font-size:13px;font-weight:600;letter-spacing:1.5px;">
+                ✦ FACIAL MOOD & FATIGUE CHECK
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown("Ekspresikan wajah Anda untuk mendeteksi indikasi kelelahan digital, stres ringan, dan kondisi wellness Anda.")
 
     picture = st.camera_input("Posisikan tepat wajah Anda di depan kamera")
@@ -1351,65 +1075,44 @@ elif menu == "Face Check":
             }
             emotion_label, fatigue_level, color, message = EMOTION_MAP.get(
                 emotion,
-                ("Stabil", "Rendah", "#38bdf8",
-                 "Kondisi emosional terlihat cukup stabil dan tidak terdapat indikasi fatigue berlebihan."),
+                ("Stabil", "Rendah", "#38bdf8", "Kondisi emosional terlihat cukup stabil dan tidak terdapat indikasi fatigue berlebihan."),
             )
 
-            # Result card
             st.markdown(f"""
             <div style="background:#111827;padding:20px;border-radius:18px;
                         border-left:6px solid {color};margin:16px 0;">
-                <h3 style="color:white;margin-top:0;font-size:18px;">
-                     Emotion Detection: {emotion_label}
-                </h3>
+                <h3 style="color:white;margin-top:0;font-size:18px;">Emotion Detection: {emotion_label}</h3>
                 <p style="color:{color};font-size:18px;font-weight:700;margin:4px 0;">
                     Fatigue Level: {fatigue_level}
                 </p>
-                <p style="color:#9ca3af;font-size:13px;margin:4px 0 10px;">
-                    Confidence: {confidence:.1f}%
-                </p>
-                <p style="color:#D1D5DB;font-size:15px;line-height:1.7;margin:0;">
-                    {message}
-                </p>
+                <p style="color:#9ca3af;font-size:13px;margin:4px 0 10px;">Confidence: {confidence:.1f}%</p>
+                <p style="color:#D1D5DB;font-size:15px;line-height:1.7;margin:0;">{message}</p>
             </div>
             """, unsafe_allow_html=True)
 
-            # All emotions bar chart
             st.subheader("Distribusi Semua Emosi Terdeteksi")
-            emo_df = pd.DataFrame(
-                list(emotions.items()), columns=["Emosi", "Skor"]
-            ).sort_values("Skor", ascending=True)
+            emo_df = pd.DataFrame(list(emotions.items()), columns=["Emosi", "Skor"]).sort_values("Skor", ascending=True)
             emo_df["Skor_pct"] = (emo_df["Skor"] * 100).round(1)
-            emo_df["Warna"]    = emo_df["Emosi"].apply(
-                lambda e: EMOTION_MAP.get(e, ("", "", "#6b7280", ""))[2]
-            )
+            emo_df["Warna"]    = emo_df["Emosi"].apply(lambda e: EMOTION_MAP.get(e, ("","","#6b7280",""))[2])
             fig_emo = go.Figure(go.Bar(
-                x=emo_df["Skor_pct"], y=emo_df["Emosi"],
-                orientation="h",
+                x=emo_df["Skor_pct"], y=emo_df["Emosi"], orientation="h",
                 marker_color=emo_df["Warna"],
-                text=emo_df["Skor_pct"].apply(lambda v: f"{v:.1f}%"),
-                textposition="outside",
+                text=emo_df["Skor_pct"].apply(lambda v: f"{v:.1f}%"), textposition="outside",
             ))
             fig_emo.update_layout(
                 paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
-                font=dict(color="white", size=13),
-                height=300,
+                font=dict(color="white", size=13), height=300,
                 margin=dict(l=10, r=50, t=10, b=10),
                 xaxis=dict(range=[0, 115], showgrid=False, title="Skor (%)"),
                 yaxis=dict(showgrid=False),
             )
             st.plotly_chart(fig_emo, use_container_width=True, config=PLOTLY_CFG)
 
-            # Specific tips per emotion
             st.subheader("Saran Spesifik untuk Kondisi Anda")
-
             if emotion == "angry":
                 st.markdown("""
-                <div style="background:#1f1015;border:1px solid #fb7185;
-                            border-radius:14px;padding:18px;">
-                    <h4 style="color:#fb7185;margin-top:0;font-size:16px;">
-                        Teknik Pernapasan 4-7-8
-                    </h4>
+                <div style="background:#1f1015;border:1px solid #fb7185;border-radius:14px;padding:18px;">
+                    <h4 style="color:#fb7185;margin-top:0;font-size:16px;">Teknik Pernapasan 4-7-8</h4>
                     <p style="color:#D1D5DB;font-size:15px;line-height:1.8;margin:0;">
                         <b style="color:#f59e0b;">1.</b> Tarik napas melalui hidung — <b>4 detik</b><br>
                         <b style="color:#f59e0b;">2.</b> Tahan napas — <b>7 detik</b><br>
@@ -1418,14 +1121,10 @@ elif menu == "Face Check":
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
-
             elif emotion == "sad":
                 st.markdown("""
-                <div style="background:#100f1f;border:1px solid #ef4444;
-                            border-radius:14px;padding:18px;">
-                    <h4 style="color:#ef4444;margin-top:0;font-size:16px;">
-                        🌿 Grounding 5-4-3-2-1
-                    </h4>
+                <div style="background:#100f1f;border:1px solid #ef4444;border-radius:14px;padding:18px;">
+                    <h4 style="color:#ef4444;margin-top:0;font-size:16px;">🌿 Grounding 5-4-3-2-1</h4>
                     <p style="color:#D1D5DB;font-size:15px;line-height:1.8;margin:0;">
                         <b style="color:#22c55e;">5</b> hal yang bisa Anda <b>lihat</b><br>
                         <b style="color:#22c55e;">4</b> hal yang bisa Anda <b>sentuh</b><br>
@@ -1435,14 +1134,10 @@ elif menu == "Face Check":
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
-
             elif emotion == "fear":
                 st.markdown("""
-                <div style="background:#16101f;border:1px solid #a855f7;
-                            border-radius:14px;padding:18px;">
-                    <h4 style="color:#a855f7;margin-top:0;font-size:16px;">
-                        💜 Teknik Box Breathing
-                    </h4>
+                <div style="background:#16101f;border:1px solid #a855f7;border-radius:14px;padding:18px;">
+                    <h4 style="color:#a855f7;margin-top:0;font-size:16px;">💜 Teknik Box Breathing</h4>
                     <p style="color:#D1D5DB;font-size:15px;line-height:1.8;margin:0;">
                         <b style="color:#a855f7;">1.</b> Tarik napas — <b>4 detik</b><br>
                         <b style="color:#a855f7;">2.</b> Tahan — <b>4 detik</b><br>
@@ -1452,7 +1147,6 @@ elif menu == "Face Check":
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
-
             elif emotion == "neutral":
                 st.info("Kondisi netral bisa berarti kelelahan ringan yang tidak terasa. Coba istirahat 10–15 menit dari layar sebelum melanjutkan aktivitas.")
             elif emotion == "happy":
@@ -1460,24 +1154,551 @@ elif menu == "Face Check":
             else:
                 st.info("Pertahankan pola istirahat dan kurangi overstimulasi digital untuk menjaga keseimbangan emosional.")
 
-            # Save to Journey
             st.markdown("---")
             face_fatigue_map = {"Rendah": 25, "Sedang": 55, "Tinggi": 80}
             face_fatigue_pct = face_fatigue_map.get(fatigue_level, 50)
-
             if st.button("Simpan Hasil Face Check ke Journey"):
                 save_history({
                     "Date":         datetime.now().strftime("%d-%m-%Y %H:%M"),
                     "Fatigue Risk": face_fatigue_pct,
-                    "Screen Time":  "—",
-                    "Stress":       "—",
-                    "Sleep":        "—",
-                    "Exercise":     "—",
+                    "Screen Time":  "—", "Stress": "—", "Sleep": "—", "Exercise": "—",
                 })
+                st.success(f"✅ Hasil Face Check ({emotion_label}, Fatigue {fatigue_level}) berhasil disimpan ke Journey!")
+
+
+# ═════════════════════════════════════════════
+# PAGE: DAILY CHECK
+# ═════════════════════════════════════════════
+
+elif menu == "Daily Check":
+
+    st.markdown("""
+    <div style="text-align:center;padding:32px 16px 20px;">
+        <div style="display:inline-block;background:rgba(34,197,94,0.12);
+                    border:1px solid rgba(34,197,94,0.3);border-radius:30px;
+                    padding:6px 18px;margin-bottom:16px;">
+            <span style="color:#22c55e;font-size:13px;font-weight:600;letter-spacing:1.5px;">
+                ✦ DAILY CHECK-IN
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    now = datetime.now()
+    st.markdown(
+        f"<div style='background:#111827;border:1px solid #1f2937;border-radius:12px;"
+        f"padding:10px 16px;display:inline-block;margin-bottom:14px;font-size:14px;'>"
+        f"📅 <b>{now.strftime('%A, %d %B %Y')}</b> &nbsp;|&nbsp; 🕐 <b>{now.strftime('%H:%M')}</b>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("Isi aktivitas harian Anda untuk melihat kondisi keseimbangan mental dan penggunaan digital sehari-hari.")
+
+    with st.form("fatigue_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            screen_time  = st.number_input("Durasi Penggunaan Gadget (jam/hari)",
+                min_value=0.0, max_value=24.0, value=7.0, step=0.5,
+                help="Contoh: 8.0 = 8 jam penggunaan gadget hari ini")
+            sleep_hours  = st.number_input("Durasi Tidur (jam)",
+                min_value=0.0, max_value=12.0, value=6.0, step=0.5,
+                help="Contoh: 7.5 = tidur 7 jam 30 menit")
+            stress_level = st.number_input("Tingkat Stres (skala 1–10)",
+                min_value=1, max_value=10, value=5, step=1,
+                help="1 = sangat santai  |  10 = sangat tertekan")
+        with col2:
+            social_media = st.number_input("Penggunaan Media Sosial (jam/hari)",
+                min_value=0.0, max_value=15.0, value=4.0, step=0.5,
+                help="Total waktu di TikTok, Instagram, X, dll.")
+            productivity = st.number_input("Produktivitas Hari Ini (skala 1–100)",
+                min_value=1, max_value=100, value=70, step=5,
+                help="1 = tidak produktif  |  100 = sangat produktif")
+            exercise     = st.number_input("Durasi Olahraga (menit)",
+                min_value=0, max_value=300, value=30, step=5,
+                help="Total menit olahraga atau aktivitas fisik hari ini")
+
+        st.markdown("---")
+        st.markdown("#### Pertanyaan Kualitatif")
+        st.caption("Jawab berdasarkan kondisi Anda hari ini — digunakan untuk memperkaya analisis.")
+
+        qa1, qa2 = st.columns(2)
+        with qa1:
+            q_focus = st.selectbox("Apakah Anda merasa sulit fokus hari ini?",
+                ["Tidak", "Sedikit", "Ya, cukup sulit", "Ya, sangat sulit"])
+            q_mood = st.selectbox("Bagaimana suasana hati Anda secara keseluruhan?",
+                ["Baik", "Biasa", "Kurang baik", "Sangat buruk"])
+        with qa2:
+            q_energy = st.selectbox("Bagaimana level energi Anda hari ini?",
+                ["Penuh energi", "Cukup", "Mudah lelah", "Sangat lelah"])
+            q_digital = st.selectbox("Seberapa sering terganggu notifikasi / gadget hari ini?",
+                ["Tidak sama sekali", "Sedikit", "Cukup sering", "Terus-menerus"])
+
+        submitted = st.form_submit_button("Analisis Kelelahan")
+
+    if submitted:
+        prog_bar = st.progress(0)
+        status   = st.empty()
+        status.info("Membaca data aktivitas Anda...")
+        prog_bar.progress(25)
+
+        input_data = pd.DataFrame([{
+            "screen_time":       screen_time,
+            "sleep_hours":       sleep_hours,
+            "stress_level":      stress_level,
+            "digital_balance":   50,
+            "physical_activity": exercise,
+            "work_hours":        8,
+        }])
+
+        status.info("Menjalankan model analisis...")
+        prog_bar.progress(60)
+
+        prediction      = model.predict(input_data)[0]
+        fatigue_percent = compute_fatigue_percent(screen_time, sleep_hours, stress_level)
+
+        qual_score = 0
+        if q_focus   in ["Ya, cukup sulit", "Ya, sangat sulit"]: qual_score += 5
+        if q_mood    in ["Kurang baik", "Sangat buruk"]:          qual_score += 5
+        if q_energy  in ["Mudah lelah", "Sangat lelah"]:          qual_score += 5
+        if q_digital in ["Cukup sering", "Terus-menerus"]:        qual_score += 5
+        fatigue_percent = min(fatigue_percent + qual_score, 95)
+
+        status.info("Menyimpan hasil dan menyiapkan rekomendasi...")
+        prog_bar.progress(90)
+
+        risk_label, risk_desc = fatigue_label(fatigue_percent)
+        recovery_score        = max(100 - fatigue_percent, 5)
+
+        st.session_state.wellness_result = {
+            "fatigue_percent": fatigue_percent,
+            "screen_time":     screen_time,
+            "sleep_hours":     sleep_hours,
+            "stress_level":    stress_level,
+            "exercise":        exercise,
+            "social_media":    social_media,
+            "productivity":    productivity,
+            "prediction":      prediction,
+            "q_focus":         q_focus,
+            "q_mood":          q_mood,
+            "q_energy":        q_energy,
+            "q_digital":       q_digital,
+        }
+        st.session_state.recovery_checks = {}
+
+        save_history({
+            "Date":         now.strftime("%d-%m-%Y %H:%M"),
+            "Fatigue Risk": fatigue_percent,
+            "Screen Time":  screen_time,
+            "Stress":       stress_level,
+            "Sleep":        sleep_hours,
+            "Exercise":     exercise,
+        })
+
+        prog_bar.progress(100)
+        status.success("✅ Analisis selesai!")
+
+        st.subheader("Kondisi Digital Wellness Anda")
+        mc1, mc2 = st.columns(2)
+        with mc1:
+            st.metric("Fatigue Risk", f"{fatigue_percent}%",
+                      help="Tingkat risiko kelelahan mental 0–100%.")
+        with mc2:
+            st.metric("Recovery Score", f"{recovery_score}%",
+                      help="Kebalikan Fatigue Risk — kapasitas pemulihan mental Anda.")
+        mc3, mc4 = st.columns(2)
+        with mc3:
+            st.metric("Kondisi ML", prediction)
+        with mc4:
+            cond = risk_label.split(" ", 1)[1] if " " in risk_label else risk_label
+            st.metric("Risiko", cond)
+
+        st.caption("💡 Recovery Score adalah kebalikan dari Fatigue Risk — keduanya saling berkaitan sebagai satu indikator kesehatan mental.")
+        st.progress(fatigue_percent)
+        st.info(f"{risk_label} — {risk_desc}")
+        st.plotly_chart(gauge_chart(fatigue_percent, "Estimasi Kondisi Mental"),
+                        use_container_width=True, config=PLOTLY_CFG)
+
+        st.markdown("**Ringkasan Kualitatif:**")
+        badges = [(q_focus,"#6366f1"),(q_mood,"#ec4899"),(q_energy,"#f59e0b"),(q_digital,"#ef4444")]
+        badge_html = "".join(
+            f"<span class='qual-badge' style='background:{c}22;border:1px solid {c};color:{c};'>{t}</span>"
+            for t, c in badges
+        )
+        st.markdown(badge_html, unsafe_allow_html=True)
+
+        PREDICTION_MAP = {
+            "Refreshed": ("🟢 Refreshed", "Kondisi mental Anda masih stabil, fokus masih terjaga, dan aktivitas digital belum memberikan tekanan kognitif berlebihan."),
+            "Strained":  ("🟡 Strained",  "Anda mulai mengalami tekanan mental dan kelelahan ringan akibat aktivitas digital dan stres harian."),
+        }
+        category, explanation = PREDICTION_MAP.get(
+            prediction,
+            ("🔴 Near-Burnout", "Kondisi mental Anda menunjukkan tanda-tanda kelelahan tinggi dan mendekati burnout. Disarankan segera melakukan recovery."),
+        )
+        st.markdown(f"## {category}")
+        st.warning(explanation)
+
+        st.markdown("---")
+        st.header("Rekomendasi Aktivitas Recovery")
+        recs = []
+        if screen_time  > 8:  recs += ["Membaca buku fisik 20–30 menit.", "Jalan santai sore tanpa gadget.", "Duduk santai di area terbuka.", "Istirahat tanpa membuka media sosial."]
+        if stress_level > 7:  recs += ["Meditasi atau latihan pernapasan mindfulness.", "Dengarkan musik relaksasi.", "Luangkan waktu untuk relaksasi.", "Tulis catatan harian."]
+        if sleep_hours  < 6:  recs += ["Tidur lebih awal, hindari gadget sebelum tidur.", "Baca buku sebelum tidur.", "Ciptakan suasana kamar yang nyaman.", "Kurangi konten digital malam hari."]
+        if exercise     < 20: recs += ["Jogging ringan 15–20 menit.", "Bersepeda santai.", "Stretching di rumah.", "Tingkatkan berjalan kaki harian."]
+        if productivity < 60: recs += ["Buat jadwal aktivitas harian.", "Gunakan teknik Pomodoro.", "Kurangi distraksi digital saat kerja.", "Sisihkan waktu istirahat singkat."]
+
+        if not recs:
+            st.success("Kondisi digital wellness Anda masih baik. Pertahankan keseimbangan aktivitas digital, fisik, dan istirahat.")
+        else:
+            for r in list(dict.fromkeys(recs)):
+                st.success(r)
+
+        st.markdown("---")
+        st.header("Kondisi Recovery Harian Anda")
+        brainrot_score = (
+            (30 if screen_time  > 8 else 0) +
+            (25 if social_media > 6 else 0) +
+            (25 if sleep_hours  < 6 else 0) +
+            (20 if stress_level > 7 else 0)
+        )
+        if brainrot_score < 30:   br_cat, br_desc = "🟢 Risiko Rendah", "Pola aktivitas digital Anda masih relatif sehat."
+        elif brainrot_score < 60: br_cat, br_desc = "🟡 Risiko Sedang", "Anda mulai menunjukkan gejala overstimulasi digital."
+        else:                     br_cat, br_desc = "🔴 Risiko Tinggi", "Anda menunjukkan indikasi brainrot tinggi."
+
+        st.subheader(br_cat)
+        st.warning(br_desc)
+        st.markdown("### Rekomendasi Pemulihan Otak")
+
+        rec_brain = []
+        if screen_time  > 8:  rec_brain.append("📵 Lakukan pembatasan digital minimal 1–2 jam tanpa gadget.")
+        if social_media > 6:  rec_brain.append("📱 Kurangi konsumsi short-form content media sosial.")
+        if sleep_hours  < 6:  rec_brain.append("😴 Tingkatkan kualitas tidur menjadi 7–8 jam.")
+        if stress_level > 7:  rec_brain.append("🧘 Lakukan mindfulness atau relaksasi.")
+        if productivity < 60: rec_brain.append("🎯 Gunakan teknik deep work atau Pomodoro.")
+        if exercise     < 20: rec_brain.append("🏃 Lakukan olahraga ringan, seperti jalan kaki atau yoga.")
+
+        if not rec_brain:
+            st.success("Anda memiliki pola digital yang cukup sehat.")
+        else:
+            for item in rec_brain:
+                st.success(item)
+
+
+# ═════════════════════════════════════════════
+# PAGE: RECOVERY
+# ═════════════════════════════════════════════
+
+elif menu == "Recovery":
+
+    st.markdown("""
+    <div style="text-align:center;padding:32px 16px 20px;">
+        <div style="display:inline-block;background:rgba(34,197,94,0.12);
+                    border:1px solid rgba(34,197,94,0.3);border-radius:30px;
+                    padding:6px 18px;margin-bottom:16px;">
+            <span style="color:#22c55e;font-size:13px;font-weight:600;letter-spacing:1.5px;">
+                ✦ RECOVERY CENTER
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown(
+        "Recovery Center membantu Anda memahami kondisi keseimbangan digital, mengurangi overstimulasi, "
+        "serta memberikan rekomendasi recovery harian untuk menjaga fokus dan kesehatan mental."
+    )
+    st.markdown("---")
+
+    require_wellness_check()
+    data = st.session_state.wellness_result
+
+    fatigue_percent = data["fatigue_percent"]
+    screen_time     = data["screen_time"]
+    sleep_hours     = data["sleep_hours"]
+    stress_level    = data["stress_level"]
+    social_media    = data["social_media"]
+    exercise        = data["exercise"]
+    productivity    = data.get("productivity", 70)
+    prediction      = data["prediction"]
+    recovery_score  = max(100 - fatigue_percent, 5)
+
+    st.header("AI Wellness Summary")
+    if fatigue_percent <= 35:
+        summary = f"Kondisi mental Anda masih cukup stabil. Penggunaan gadget sekitar {screen_time} jam/hari masih dalam batas aman."
+    elif fatigue_percent <= 65:
+        summary = f"Aktivitas digital harian mulai mempengaruhi fokus. Penggunaan gadget {screen_time} jam/hari, tidur {sleep_hours} jam, dan level stres sedang menunjukkan tanda kelelahan mental ringan."
+    else:
+        summary = f"Sistem mendeteksi risiko kelelahan mental tinggi. Penggunaan gadget {screen_time} jam/hari, kurang tidur, dan stres tinggi mempengaruhi keseimbangan mental Anda. Disarankan digital recovery segera."
+    st.info(summary)
+
+    st.markdown("---")
+    st.header("Dopamine Overload Meter")
+
+    if prediction == "Refreshed":
+        dop_pct, dop_stat = max(15, fatigue_percent - 10), "🟢 Rendah"
+        dop_desc = f"Aktivitas digital Anda masih sehat. Penggunaan gadget {screen_time} jam/hari masih dalam batas aman."
+    elif prediction == "Strained":
+        dop_pct, dop_stat = fatigue_percent, "🟡 Sedang"
+        dop_desc = f"Tanda-tanda overstimulasi digital ringan. Gadget {screen_time} jam/hari & media sosial {social_media} jam/hari mulai mempengaruhi fokus."
+    else:
+        dop_pct, dop_stat = min(fatigue_percent + 5, 95), "🔴 Tinggi"
+        dop_desc = "Overstimulasi digital tinggi terdeteksi. Aktivitas digital berlebihan dan kurang tidur mempengaruhi keseimbangan mental Anda secara signifikan."
+
+    dm1, dm2 = st.columns(2)
+    with dm1:
+        st.metric("Dopamine Overload", f"{dop_pct}%",
+                  help="Estimasi tingkat overstimulasi otak akibat konsumsi konten digital.")
+    with dm2:
+        st.metric("Recovery Readiness", f"{recovery_score}%",
+                  help="Kapasitas pemulihan mental Anda.")
+    st.caption("💡 Recovery Score dan Fatigue Risk adalah dua sisi dari indikator yang sama.")
+    st.progress(dop_pct)
+    st.warning(f"{dop_stat} — {dop_desc}")
+    st.info("Semakin tinggi nilainya, semakin tinggi risiko overstimulasi digital akibat penggunaan gadget, media sosial, dan konten instan berlebihan.")
+    st.plotly_chart(gauge_chart(dop_pct, "Overstimulasi Digital", bar_color="#6366F1"),
+                    use_container_width=True, config=PLOTLY_CFG)
+
+    if recovery_score >= 70:   st.success("Kondisi recovery Anda cukup baik.")
+    elif recovery_score >= 40: st.warning("Recovery mental Anda perlu ditingkatkan.")
+    else:                      st.error("Kondisi mental Anda membutuhkan recovery lebih serius.")
+
+    st.markdown("---")
+    st.header("Daily Recovery Plan")
+
+    if prediction == "Refreshed":
+        st.success("Kondisi mental Anda masih stabil. Berikut challenge ringan untuk menjaga keseimbangan digital:")
+    elif prediction == "Strained":
+        st.warning("Sistem mendeteksi gejala awal kelelahan mental. Berikut challenge untuk mengurangi overstimulasi digital:")
+    else:
+        st.error("Sistem mendeteksi risiko kelelahan mental tinggi. Berikut recovery plan yang disarankan:")
+
+    challenges_by_cat = {"Digital": [], "Fisik": [], "Mental": []}
+
+    if screen_time > 8:
+        challenges_by_cat["Digital"] += [
+            ("📵", "Kurangi penggunaan gadget 1–2 jam dari biasanya", "Sepanjang hari"),
+            ("📚", "Baca buku fisik sebagai pengganti layar", "20–30 menit"),
+        ]
+    elif screen_time > 5:
+        challenges_by_cat["Digital"].append(("⏸", "Satu sesi tanpa gadget", "30 menit"))
+    if social_media > 6:
+        challenges_by_cat["Digital"].append(("🚫", "Hindari scrolling media sosial", "1 jam penuh"))
+    elif social_media > 3:
+        challenges_by_cat["Digital"].append(("📵", "Batasi konsumsi short-form content", "Hari ini"))
+    if fatigue_percent >= 75:
+        challenges_by_cat["Digital"].append(("🌿", "Luangkan waktu di area terbuka tanpa gadget", "30 menit"))
+
+    if exercise < 15:
+        challenges_by_cat["Fisik"] += [
+            ("🚶", "Jalan santai atau olahraga ringan", "20–30 menit"),
+            ("🧘", "Stretching seluruh tubuh", "10 menit"),
+        ]
+    elif exercise < 30:
+        challenges_by_cat["Fisik"].append(("🧘", "Stretching ringan", "10–15 menit"))
+    if sleep_hours < 4:
+        challenges_by_cat["Fisik"].append(("😴", "Tidur lebih awal — targetkan 7 jam", "Malam ini"))
+    elif sleep_hours < 6:
+        challenges_by_cat["Fisik"].append(("📵", "Hindari gadget sebelum tidur", "30 menit sebelum tidur"))
+
+    if stress_level >= 8:
+        challenges_by_cat["Mental"] += [
+            ("🧘", "Meditasi atau pernapasan 4-7-8", "15–20 menit"),
+            ("✍️", "Tulis catatan harian untuk melepas tekanan", "10–15 menit"),
+        ]
+    elif stress_level >= 6:
+        challenges_by_cat["Mental"].append(("🎵", "Dengarkan musik relaksasi tanpa media sosial", "20 menit"))
+    if fatigue_percent >= 75:
+        challenges_by_cat["Mental"].append(("😊", "Lakukan satu hal yang benar-benar Anda nikmati", "30 menit"))
+    if not challenges_by_cat["Mental"]:
+        challenges_by_cat["Mental"].append(("✅", "Pertahankan kebiasaan positif hari ini", "Sepanjang hari"))
+
+    recovery_plan_tabs(challenges_by_cat, prefix="rec")
+
+
+# ═════════════════════════════════════════════
+# PAGE: JOURNEY
+# ═════════════════════════════════════════════
+
+elif menu == "Journey":
+
+    st.markdown("""
+    <div style="text-align:center;padding:32px 16px 20px;">
+        <div style="display:inline-block;background:rgba(34,197,94,0.12);
+                    border:1px solid rgba(34,197,94,0.3);border-radius:30px;
+                    padding:6px 18px;margin-bottom:16px;">
+            <span style="color:#22c55e;font-size:13px;font-weight:600;letter-spacing:1.5px;">
+                ✦ PROGRESS TRACKER
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    history    = st.session_state.progress_history
+    history_df = pd.DataFrame(history) if history else pd.DataFrame()
+
+    if history_df.empty:
+        st.markdown("""
+        <div class="empty-state">
+            <h2>Belum Ada Data Progress</h2>
+            <p>Mulai Daily Check pertama Anda untuk melihat perkembangan kondisi mental dari waktu ke waktu.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Mulai Daily Check Pertama Saya"):
+            st.session_state.menu = "Daily Check"
+            st.rerun()
+        st.stop()
+
+    history_df["Check"] = range(1, len(history_df) + 1)
+
+    st.subheader("Ringkasan Mingguan")
+    if "Date" in history_df.columns:
+        try:
+            history_df["Date_parsed"] = pd.to_datetime(
+                history_df["Date"], format="%d-%m-%Y %H:%M", errors="coerce")
+            now_j      = datetime.now()
+            week_start = now_j - timedelta(days=7)
+            prev_start = now_j - timedelta(days=14)
+            this_week  = history_df[history_df["Date_parsed"] >= week_start]
+            last_week  = history_df[(history_df["Date_parsed"] >= prev_start) &
+                                    (history_df["Date_parsed"] <  week_start)]
+            avg_this = this_week["Fatigue Risk"].mean() if not this_week.empty else None
+            avg_last = last_week["Fatigue Risk"].mean() if not last_week.empty else None
+
+            wc1, wc2 = st.columns(2)
+            with wc1:
+                if avg_this is not None:
+                    delta = f"{avg_this - avg_last:+.1f}%" if avg_last is not None else None
+                    st.metric("Rata-rata Fatigue Minggu Ini", f"{avg_this:.1f}%",
+                              delta=delta, delta_color="inverse",
+                              help="Nilai lebih rendah = kondisi lebih baik")
+                else:
+                    st.metric("Rata-rata Fatigue Minggu Ini", "—")
+            with wc2:
+                st.metric("Total Pemeriksaan", f"{len(history_df)} sesi")
+            wc3, wc4 = st.columns(2)
+            with wc3:
+                st.metric("Fatigue Terbaik", f"{history_df['Fatigue Risk'].min():.0f}%")
+            with wc4:
+                vals   = history_df["Fatigue Risk"].tolist()
+                streak = sum(1 for i in range(1, len(vals)) if vals[i] < vals[i - 1])
+                st.metric("Recovery Streak", f"{streak} sesi")
+        except Exception:
+            pass
+
+    st.markdown("---")
+    fig_prog = px.line(history_df, x="Check", y="Fatigue Risk",
+                       markers=True, title="Perkembangan Risiko Kelelahan Mental")
+    fig_prog.update_traces(line_color="#22c55e", marker=dict(size=7, color="#22c55e"))
+    fig_prog.update_layout(paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
+                           font_color="white", height=380,
+                           margin=dict(t=50, l=10, r=10, b=20))
+    st.plotly_chart(fig_prog, use_container_width=True, config=PLOTLY_CFG)
+
+    latest, first = history_df["Fatigue Risk"].iloc[-1], history_df["Fatigue Risk"].iloc[0]
+    if latest < first:    st.success("Kondisi mental Anda menunjukkan perkembangan positif. Risiko kelelahan mulai menurun.")
+    elif latest > first:  st.error("Risiko kelelahan mental Anda meningkat. Aktivitas digital dan stres mulai memberi dampak lebih besar.")
+    else:                 st.info("Kondisi mental Anda relatif stabil.")
+
+    st.markdown("---")
+    st.subheader("Pola Kesehatan Terbaik Anda")
+    if all(c in history_df.columns for c in ["Sleep", "Exercise", "Fatigue Risk"]):
+        try:
+            best_df = history_df[
+                (pd.to_numeric(history_df["Sleep"],    errors="coerce") >= 7) &
+                (pd.to_numeric(history_df["Exercise"], errors="coerce") >= 30)
+            ]
+            if not best_df.empty:
+                avg_best = best_df["Fatigue Risk"].mean()
+                avg_all  = history_df["Fatigue Risk"].mean()
                 st.success(
-                    f"✅ Hasil Face Check ({emotion_label}, Fatigue {fatigue_level}) "
-                    f"berhasil disimpan ke Journey!"
+                    f"Kondisi terbaik Anda terjadi saat **tidur ≥ 7 jam** dan **olahraga ≥ 30 menit**. "
+                    f"Rata-rata fatigue: **{avg_best:.1f}%** "
+                    f"({avg_all - avg_best:.1f}% lebih baik dari rata-rata keseluruhan)."
                 )
+            else:
+                st.info("Belum cukup sesi dengan tidur ≥ 7 jam dan olahraga ≥ 30 menit untuk menampilkan pola terbaik.")
+        except Exception:
+            pass
+
+    st.markdown("---")
+    st.subheader("Riwayat Pemeriksaan")
+    st.dataframe(history_df.drop(columns=["Date_parsed"], errors="ignore"), use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Recovery Timeline")
+    if "Date" in history_df.columns:
+        fig_tl = px.line(history_df, x="Date", y="Fatigue Risk",
+                         markers=True, title="Perkembangan Risiko Mental Harian")
+        fig_tl.update_traces(line_color="#6366f1", marker=dict(size=6, color="#6366f1"))
+        fig_tl.update_layout(
+            paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
+            font=dict(color="white"), height=320,
+            margin=dict(t=50, l=10, r=10, b=40),
+            xaxis=dict(tickangle=-30),
+        )
+        st.plotly_chart(fig_tl, use_container_width=True, config=PLOTLY_CFG)
+
+    st.markdown("---")
+    st.subheader("Trend Mental")
+    if len(history_df) >= 2:
+        lv, pv = history_df["Fatigue Risk"].iloc[-1], history_df["Fatigue Risk"].iloc[-2]
+        if lv < pv:   st.success("Tingkat kelelahan mental Anda mulai berkurang. Digital wellness menunjukkan perkembangan positif.")
+        elif lv > pv: st.error("Risiko mental Anda meningkat. Disarankan meningkatkan recovery.")
+        else:         st.info("Kondisi mental Anda relatif stabil.")
+    else:
+        st.info("Belum cukup data untuk melihat trend.")
+
+    st.markdown("---")
+    st.subheader("Visualisasi Mood Mingguan")
+    mood_history = st.session_state.mood_history
+    if mood_history:
+        mood_df = pd.DataFrame(mood_history)
+        mood_df["Date_parsed"] = pd.to_datetime(mood_df["Date"], format="%d-%m-%Y %H:%M", errors="coerce")
+        mood_df["Week"]      = mood_df["Date_parsed"].dt.isocalendar().week.astype(str)
+        mood_df["MoodClean"] = mood_df["Mood"].str.replace(r"^\S+\s", "", regex=True)
+        mood_count = mood_df.groupby(["Week", "MoodClean"]).size().reset_index(name="Count")
+        fig_mood = px.bar(
+            mood_count, x="Week", y="Count", color="MoodClean", barmode="group",
+            title="Frekuensi Mood per Minggu",
+            color_discrete_sequence=["#22c55e", "#6366f1", "#f59e0b", "#ef4444", "#38bdf8"],
+        )
+        fig_mood.update_layout(
+            paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
+            font=dict(color="white"), height=320,
+            legend=dict(title="Mood", bgcolor="rgba(0,0,0,0)", orientation="h", y=-0.3),
+            margin=dict(t=50, l=10, r=10, b=60),
+        )
+        st.plotly_chart(fig_mood, use_container_width=True, config=PLOTLY_CFG)
+    else:
+        st.info("Belum ada data mood. Isi catatan harian di bawah untuk mulai melacak mood Anda.")
+
+    st.markdown("---")
+    st.subheader("Catatan Harian")
+    mood      = st.selectbox("Mood Hari Ini", ["Bahagia", "Tenang", "Lelah", "Overwhelmed", "Stres"])
+    mood_note = st.text_area("Bagaimana kondisi Anda hari ini?", placeholder="Ceritakan kondisi Anda hari ini...")
+    if st.button("Simpan Catatan Harian"):
+        save_mood({"Date": datetime.now().strftime("%d-%m-%Y %H:%M"), "Mood": mood, "Note": mood_note})
+        st.success("Catatan Harian berhasil disimpan.")
+
+    st.markdown("---")
+    st.subheader("🗑 Kelola Data")
+    if not st.session_state.confirm_delete:
+        if st.button("🗑 Hapus Semua Riwayat Pemeriksaan"):
+            st.session_state.confirm_delete = True
+            st.rerun()
+    else:
+        st.error("Apakah Anda yakin ingin menghapus semua riwayat? Tindakan ini tidak dapat dibatalkan.")
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            if st.button("✅ Ya, Hapus Semua"):
+                st.session_state.progress_history = []
+                st.session_state.confirm_delete   = False
+                if os.path.exists(HISTORY_FILE): os.remove(HISTORY_FILE)
+                st.success("Riwayat berhasil dihapus.")
+                st.rerun()
+        with cc2:
+            if st.button("❌ Batal"):
+                st.session_state.confirm_delete = False
+                st.rerun()
+
 
 # ═════════════════════════════════════════════
 # PAGE: GUIDE
@@ -1485,32 +1706,42 @@ elif menu == "Face Check":
 
 elif menu == "Guide":
 
-    st.header("📖 Panduan Digital Wellness")
+    st.markdown("""
+    <div style="text-align:center;padding:32px 16px 20px;">
+        <div style="display:inline-block;background:rgba(34,197,94,0.12);
+                    border:1px solid rgba(34,197,94,0.3);border-radius:30px;
+                    padding:6px 18px;margin-bottom:16px;">
+            <span style="color:#22c55e;font-size:13px;font-weight:600;letter-spacing:1.5px;">
+                ✦ PANDUAN DIGITAL WELLNESS
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown(
         "Semua yang perlu kamu tahu tentang kesehatan mental di era digital — "
         "dijelaskan dengan sederhana dan mudah dipahami."
     )
     st.markdown("---")
 
-    # ── Section 1: Apa itu Kelelahan Digital? ──────────────────────────────
     st.markdown("""
     <div style="background:#111827;padding:22px 24px;border-radius:18px;
                 border-left:5px solid #3B82F6;margin-bottom:20px;">
         <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
-             Apa itu Kelelahan Digital?
+            Apa itu Kelelahan Digital?
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
-            Kelelahan digital adalah kondisi saat otak kamu kelelahan karena terlalu banyak 
+            Kelelahan digital adalah kondisi saat otak kamu kelelahan karena terlalu banyak
             berinteraksi dengan layar — scrolling, notifikasi, konten video, chat, dan lainnya.
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
-            Bayangkan otakmu seperti <b style="color:#60A5FA;">baterai HP</b>. Semakin banyak 
-            aplikasi yang berjalan, semakin cepat baterai habis. Jika tidak di-charge (istirahat), 
+            Bayangkan otakmu seperti <b style="color:#60A5FA;">baterai HP</b>. Semakin banyak
+            aplikasi yang berjalan, semakin cepat baterai habis. Jika tidak di-charge (istirahat),
             lama-lama HP mati sendiri.
         </p>
         <div style="background:#1E3A5F;border-radius:12px;padding:14px 16px;">
             <p style="color:#93C5FD;font-size:14px;font-weight:600;margin:0 0 8px;">
-                 Tanda-tanda kamu mulai kelelahan digital:
+                Tanda-tanda kamu mulai kelelahan digital:
             </p>
             <ul style="color:#D1D5DB;font-size:14px;line-height:2;margin:0;padding-left:18px;">
                 <li>Sulit fokus walau pekerjaannya mudah</li>
@@ -1521,23 +1752,20 @@ elif menu == "Guide":
             </ul>
         </div>
     </div>
-    """, unsafe_allow_html=True)
 
-    # ── Section 2: Kenapa Scrolling Bikin Ketagihan? ────────────────────────
-    st.markdown("""
     <div style="background:#1a1020;padding:22px 24px;border-radius:18px;
                 border-left:5px solid #A855F7;margin-bottom:20px;">
         <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
-             Kenapa Scrolling Bikin Ketagihan?
+            Kenapa Scrolling Bikin Ketagihan?
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
-            TikTok, Instagram Reels, dan YouTube Shorts dirancang seperti mesin slot — 
-            kamu tidak tahu konten apa yang akan muncul selanjutnya, dan itu membuat otak 
+            TikTok, Instagram Reels, dan YouTube Shorts dirancang seperti mesin slot —
+            kamu tidak tahu konten apa yang akan muncul selanjutnya, dan itu membuat otak
             terus memproduksi <b style="color:#C084FC;">dopamin</b> (zat kimia "kesenangan").
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
             Masalahnya: semakin sering dopamin dipicu oleh hal mudah (scroll), 
-            semakin sulit otak menikmati aktivitas yang butuh usaha — seperti belajar, membaca, 
+            maka semakin sulit otak untuk menikmati aktivitas yang membutuhkan usaha — seperti belajar, membaca, 
             atau mengerjakan tugas.
         </p>
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
@@ -1551,23 +1779,15 @@ elif menu == "Guide":
             </div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
 
-    # ── Section 3: Kenapa Tidur Itu Penting? ───────────────────────────────
-    st.markdown("""
     <div style="background:#0f1a1a;padding:22px 24px;border-radius:18px;
                 border-left:5px solid #10B981;margin-bottom:20px;">
         <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
-             Kenapa Tidur Itu Sangat Penting?
+            Kenapa Tidur Itu Sangat Penting?
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
-            Saat tidur, otak tidak benar-benar istirahat — justru otak sedang 
-            <b style="color:#34D399;">memproses memori, membuang "sampah" racun saraf</b>, 
+            Saat tidur, otak sedang <b style="color:#34D399;">memproses memori, membuang "sampah" racun saraf</b>,
             dan memulihkan energi mental untuk hari berikutnya.
-        </p>
-        <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 14px;">
-            Main HP sebelum tidur merusak proses ini karena cahaya biru layar menghambat 
-            produksi melatonin — hormon yang memberi sinyal "waktunya tidur" ke otak.
         </p>
         <div style="background:#134E3A;border-radius:12px;padding:14px 16px;">
             <p style="color:#6EE7B7;font-size:14px;font-weight:600;margin:0 0 8px;">
@@ -1581,37 +1801,27 @@ elif menu == "Guide":
             </ul>
         </div>
     </div>
-    """, unsafe_allow_html=True)
 
-    # ── Section 4: Cara Recovery yang Efektif ──────────────────────────────
-    st.markdown("""
     <div style="background:#111827;padding:22px 24px;border-radius:18px;
                 border-left:5px solid #F59E0B;margin-bottom:20px;">
         <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
-             Cara Recovery yang Efektif (dan Mudah Dilakukan)
+            Cara Recovery yang Efektif (dan Mudah Dilakukan)
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 14px;">
-            Recovery bukan berarti kamu harus berhenti pakai HP selamanya. 
+            Recovery bukan berarti kamu harus berhenti pakai HP selamanya.
             Cukup berikan jeda yang tepat agar otak bisa pulih.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # Recovery cards in 2 columns
     rc1, rc2 = st.columns(2)
     recovery_items = [
-        ("📵", "#3B82F6", "Digital Detox Mini",
-         "Coba 30–60 menit tanpa HP setiap hari. Tidak perlu seharian — cukup konsisten."),
-        ("🚶", "#10B981", "Gerak Fisik",
-         "Jalan kaki 20 menit terbukti mengurangi kortisol (hormon stres) dan meningkatkan mood."),
-        ("📚", "#F59E0B", "Baca Buku Fisik",
-         "Membaca melatih fokus jangka panjang yang terkikis oleh konten pendek."),
-        ("🧘", "#A855F7", "Pernapasan / Meditasi",
-         "5 menit latihan napas dalam bisa menurunkan stres lebih efektif dari scrolling."),
-        ("✍️", "#EC4899", "Tulis Jurnal",
-         "Menulis perasaan membantu otak 'menutup tab' yang terus berjalan di latar belakang."),
-        ("🌳", "#22C55E", "Waktu di Alam Terbuka",
-         "Bahkan duduk di taman 15 menit dapat menurunkan tekanan mental secara signifikan."),
+        ("📵", "#3B82F6", "Digital Detox Mini",   "Coba 30–60 menit tanpa HP setiap hari. Tidak perlu seharian — cukup konsisten."),
+        ("🚶", "#10B981", "Gerak Fisik",           "Jalan kaki 20 menit terbukti mengurangi kortisol (hormon stres) dan meningkatkan mood."),
+        ("📚", "#F59E0B", "Baca Buku Fisik",       "Membaca melatih fokus jangka panjang yang terkikis oleh konten pendek."),
+        ("🧘", "#A855F7", "Pernapasan / Meditasi", "5 menit latihan napas dalam bisa menurunkan stres lebih efektif dari scrolling."),
+        ("✍️", "#EC4899", "Tulis Jurnal",          "Menulis perasaan membantu otak 'menutup tab' yang terus berjalan di latar belakang."),
+        ("🌳", "#22C55E", "Waktu di Alam Terbuka", "Bahkan duduk di taman 15 menit dapat menurunkan tekanan mental secara signifikan."),
     ]
     for i, (icon, color, title, desc) in enumerate(recovery_items):
         col = rc1 if i % 2 == 0 else rc2
@@ -1625,27 +1835,22 @@ elif menu == "Guide":
             </div>
             """, unsafe_allow_html=True)
 
-    # ── Section 5: Otak Bisa Pulih ─────────────────────────────────────────
     st.markdown("""
     <div style="background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);
                 padding:24px;border-radius:18px;margin-top:8px;text-align:center;">
         <p style="font-size:22px;font-weight:700;color:white;margin:0 0 10px;">
-             Kabar Baiknya: Otak Kamu Bisa Pulih!
+            Kabar Baiknya: Otak Kamu Bisa Pulih!
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;max-width:600px;margin:0 auto 16px;">
-            Otak manusia bersifat <b style="color:#34D399;">neuroplastis</b> — artinya bisa berubah 
+            Otak manusia bersifat <b style="color:#34D399;">neuroplastis</b> — artinya bisa berubah
             dan pulih seiring kebiasaan baru. Kelelahan digital bukan kondisi permanen.
         </p>
         <p style="font-size:15px;color:#A7F3D0;line-height:1.8;max-width:600px;margin:0 auto;">
-            Mulai dari hal kecil: tidur lebih awal 30 menit, jalan kaki sebentar, 
+            Mulai dari hal kecil: tidur lebih awal 30 menit, jalan kaki sebentar,
             atau letakkan HP saat makan. Konsistensi kecil menghasilkan perubahan besar.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # ═════════════════════════════════════════════
-    # FOOTER
-    # ═════════════════════════════════════════════
-    
     st.markdown("---")
     st.caption("Dashboard Pengembangan Sistem Deteksi Dini Kelelahan Kognitif Berbasis Aktivitas Harian")
