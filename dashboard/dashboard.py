@@ -276,9 +276,10 @@ input[type="number"] {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 24px;
+    margin: 0 auto 24px auto;
     animation: pulse-ring 2.5s ease-in-out infinite;
     font-size: 52px;
+    box-sizing: border-box;
 }
 
 @keyframes pulse-ring {
@@ -333,22 +334,23 @@ input[type="number"] {
     .js-plotly-plot .svg-container { max-height: 280px; }
     .qual-badge { display: block; margin-bottom: 6px; }
     .recovery-card { padding: 12px 14px; }
-    .logo-ring { width: 88px; height: 88px; font-size: 40px; }
-}
 
-/* ── Fix alignment mobile ── */
-@media (max-width: 768px) {
+    /* ── Fix logo & teks center di mobile ── */
     .logo-ring {
-        display: flex !important;
+        width: 88px !important;
+        height: 88px !important;
+        font-size: 40px !important;
         margin-left: auto !important;
         margin-right: auto !important;
+        left: 0 !important;
+        transform: none !important;
+        position: relative !important;
     }
     h1, h2, h3 {
         text-align: center !important;
         width: 100% !important;
-    }
-    .stApp > div {
-        align-items: center !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
     }
 }
 
@@ -639,35 +641,55 @@ def show_welcome():
         text-align:center;
         padding:48px 16px 24px;
         width:100%;
+        box-sizing:border-box;
     ">
+        <!-- Logo ring dipaksa center dengan margin auto + block -->
         <div class="logo-ring anim-1" style="
+            display:flex;
+            align-items:center;
+            justify-content:center;
             margin-left:auto;
             margin-right:auto;
             margin-bottom:24px;
         ">🌿</div>
+
+        <!-- Judul Recovera -->
         <h1 class="anim-2" style="
             font-family:'Syne',sans-serif;
             font-size:clamp(38px,8vw,68px);
             font-weight:800;
             background:linear-gradient(135deg,#ffffff 0%,#a3e635 50%,#22c55e 100%);
-            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-            background-clip:text;line-height:1.1;
+            -webkit-background-clip:text;
+            -webkit-text-fill-color:transparent;
+            background-clip:text;
+            line-height:1.1;
             margin:0 0 14px;
             width:100%;
             text-align:center;
-        ">
-            Recovera
-        </h1>
+        ">Recovera</h1>
+
+        <!-- Tagline -->
         <p class="anim-3" style="
             font-size:clamp(15px,3vw,19px);
             color:#9CA3AF;
             max-width:420px;
             margin:0 auto 10px;
-            line-height:1.8;">
+            line-height:1.8;
+            text-align:center;
+        ">
             Deteksi kelelahan digital.<br>
             <b style="color:#D1D5DB;">Pulihkan mental</b> — mulai hari ini.
         </p>
-        <div class="anim-4" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:20px 0 36px;">
+
+        <!-- Badge pills -->
+        <div class="anim-4" style="
+            display:flex;
+            gap:8px;
+            justify-content:center;
+            flex-wrap:wrap;
+            margin:20px auto 36px;
+            width:100%;
+        ">
             <div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);
                         border-radius:20px;padding:6px 16px;font-size:12px;color:#86EFAC;">
                 🧠 Deteksi Kelelahan
