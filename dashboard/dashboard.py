@@ -632,33 +632,44 @@ def recovery_plan_tabs(challenges_by_cat, prefix):
 # ══════════════════════════════════════════════════════
 
 def show_welcome():
-    st.markdown("""
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 16px 24px;width:100%;box-sizing:border-box;">
-        <div class="logo-ring anim-1" style="display:flex;align-items:center;justify-content:center;margin-left:auto;margin-right:auto;margin-bottom:24px;">🌿</div>
+    # Gunakan string concatenation untuk menghindari parsing error Streamlit
+    html_welcome = (
+        '<div style="display:flex;flex-direction:column;align-items:center;'
+        'justify-content:center;text-align:center;padding:48px 16px 24px;'
+        'width:100%;box-sizing:border-box;">'
 
-        <h1 class="anim-2" style="font-family:'Syne',sans-serif;font-size:clamp(38px,8vw,68px);font-weight:800;background:linear-gradient(135deg,#ffffff 0%,#a3e635 50%,#22c55e 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1.1;margin:0 0 14px;width:100%;text-align:center;">Recovera</h1>
+        '<div class="logo-ring anim-1" style="display:flex;align-items:center;'
+        'justify-content:center;margin-left:auto;margin-right:auto;'
+        'margin-bottom:24px;">🌿</div>'
 
-        <p class="anim-3" style="font-size:clamp(15px,3vw,19px);color:#9CA3AF;max-width:420px;margin:0 auto 10px;line-height:1.8;text-align:center;">
-            Deteksi kelelahan digital.<br>
-            <b style="color:#D1D5DB;">Pulihkan mental</b> — mulai hari ini.
-        </p>
+        '<h1 class="anim-2" style="font-family:Syne,sans-serif;'
+        'font-size:clamp(38px,8vw,68px);font-weight:800;'
+        'background:linear-gradient(135deg,#ffffff 0%,#a3e635 50%,#22c55e 100%);'
+        '-webkit-background-clip:text;-webkit-text-fill-color:transparent;'
+        'background-clip:text;line-height:1.1;margin:0 0 14px;'
+        'width:100%;text-align:center;">Recovera</h1>'
 
-        <div class="anim-4" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:20px auto 36px;width:100%;">
-            <div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);
-                        border-radius:20px;padding:6px 16px;font-size:12px;color:#86EFAC;">
-                🧠 Deteksi Kelelahan
-            </div>
-            <div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.25);
-                        border-radius:20px;padding:6px 16px;font-size:12px;color:#93C5FD;">
-                📊 Analisis Digital
-            </div>
-            <div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.25);
-                        border-radius:20px;padding:6px 16px;font-size:12px;color:#C4B5FD;">
-                🌿 Recovery Plan
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        '<p class="anim-3" style="font-size:clamp(15px,3vw,19px);color:#9CA3AF;'
+        'max-width:420px;margin:0 auto 10px;line-height:1.8;text-align:center;">'
+        'Deteksi kelelahan digital.<br>'
+        '<b style="color:#D1D5DB;">Pulihkan mental</b> \u2014 mulai hari ini.'
+        '</p>'
+
+        '<div class="anim-4" style="display:flex;gap:8px;justify-content:center;'
+        'flex-wrap:wrap;margin:20px auto 36px;width:100%;">'
+        '<div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);'
+        'border-radius:20px;padding:6px 16px;font-size:12px;color:#86EFAC;">'
+        '🧠 Deteksi Kelelahan</div>'
+        '<div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.25);'
+        'border-radius:20px;padding:6px 16px;font-size:12px;color:#93C5FD;">'
+        '📊 Analisis Digital</div>'
+        '<div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.25);'
+        'border-radius:20px;padding:6px 16px;font-size:12px;color:#C4B5FD;">'
+        '🌿 Recovery Plan</div>'
+        '</div>'
+        '</div>'
+    )
+    st.markdown(html_welcome, unsafe_allow_html=True)
 
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
