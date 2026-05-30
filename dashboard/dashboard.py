@@ -643,7 +643,6 @@ def show_welcome():
         width:100%;
         box-sizing:border-box;
     ">
-        <!-- Logo ring dipaksa center dengan margin auto + block -->
         <div class="logo-ring anim-1" style="
             display:flex;
             align-items:center;
@@ -653,7 +652,6 @@ def show_welcome():
             margin-bottom:24px;
         ">🌿</div>
 
-        <!-- Judul Recovera -->
         <h1 class="anim-2" style="
             font-family:'Syne',sans-serif;
             font-size:clamp(38px,8vw,68px);
@@ -668,7 +666,6 @@ def show_welcome():
             text-align:center;
         ">Recovera</h1>
 
-        <!-- Tagline -->
         <p class="anim-3" style="
             font-size:clamp(15px,3vw,19px);
             color:#9CA3AF;
@@ -681,7 +678,6 @@ def show_welcome():
             <b style="color:#D1D5DB;">Pulihkan mental</b> — mulai hari ini.
         </p>
 
-        <!-- Badge pills -->
         <div class="anim-4" style="
             display:flex;
             gap:8px;
