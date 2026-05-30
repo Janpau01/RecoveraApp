@@ -9,7 +9,6 @@ import plotly.graph_objects as go
 import streamlit as st
 from datetime import datetime, timedelta
 from PIL import Image
-from fer import FER
 
 # ─────────────────────────────────────────────
 # ENVIRONMENT
@@ -25,6 +24,10 @@ os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 HISTORY_FILE = "progress_history.csv"
 MOOD_FILE    = "mood_journal.csv"
 DB_FILE      = "recovera_users.db"
+
+# MediaPipe thresholds
+FACE_MESH_MIN_DETECTION = 0.5
+FACE_MESH_MIN_TRACKING  = 0.5
 
 MENU_ITEMS = [
     "Beranda",
@@ -109,7 +112,6 @@ init_db()
 
 # ─────────────────────────────────────────────
 # GLOBAL CSS
-# PENTING: URL Google Fonts harus 1 baris, tidak boleh ada line break
 # ─────────────────────────────────────────────
 
 st.markdown("""
@@ -405,9 +407,16 @@ def load_model():
     return joblib.load("model/fatigue_model.pkl")
 
 
+# ── GANTI: load_fer_model → load_mediapipe_model ──
 @st.cache_resource
-def load_fer_model():
-    return FER()
+def load_mediapipe_model():
+    import mediapipe as mp
+    return mp.solutions.face_mesh.FaceMesh(
+        static_image_mode=True,
+        max_num_faces=1,
+        min_detection_confidence=FACE_MESH_MIN_DETECTION,
+        min_tracking_confidence=FACE_MESH_MIN_TRACKING,
+    )
 
 
 df    = load_data()
@@ -481,6 +490,69 @@ def require_wellness_check():
             st.session_state.menu = "Daily Check"
             st.rerun()
         st.stop()
+
+
+# ── BARU: Fungsi analisis MediaPipe ──
+def analyze_with_mediapipe(img_array, face_mesh):
+    results = face_mesh.process(img_array)
+
+    if not results.multi_face_landmarks:
+        return None, None, None, None, None, None, None, None
+
+    landmarks = results.multi_face_landmarks[0].landmark
+    h, w = img_array.shape[:2]
+
+    def get_point(idx):
+        lm = landmarks[idx]
+        return np.array([lm.x * w, lm.y * h])
+
+    # ── Eye Aspect Ratio (EAR) ──
+    left_v   = np.linalg.norm(get_point(159) - get_point(145))
+    left_h   = np.linalg.norm(get_point(133) - get_point(33))
+    ear_left = left_v / (left_h + 1e-6)
+
+    right_v   = np.linalg.norm(get_point(386) - get_point(374))
+    right_h   = np.linalg.norm(get_point(362) - get_point(263))
+    ear_right = right_v / (right_h + 1e-6)
+
+    ear_avg = (ear_left + ear_right) / 2.0
+
+    # ── Mouth Aspect Ratio (MAR) ──
+    mouth_v = np.linalg.norm(get_point(13)  - get_point(14))
+    mouth_h = np.linalg.norm(get_point(78)  - get_point(308))
+    mar     = mouth_v / (mouth_h + 1e-6)
+
+    # ── Deteksi Kacamata ──
+    lm_eye  = landmarks[33]
+    ex, ey  = int(lm_eye.x * w), int(lm_eye.y * h)
+    ey1, ey2 = max(0, ey - 10), min(h, ey + 10)
+    ex1, ex2 = max(0, ex - 15), min(w, ex + 15)
+    eye_region       = img_array[ey1:ey2, ex1:ex2]
+    glasses_detected = np.mean(eye_region) > 200 if eye_region.size > 0 else False
+
+    # ── Klasifikasi Fatigue ──
+    fatigue_score = 0
+
+    if ear_avg < 0.15:   fatigue_score += 50
+    elif ear_avg < 0.20: fatigue_score += 30
+    elif ear_avg < 0.25: fatigue_score += 15
+
+    if mar > 0.5:        fatigue_score += 30
+    elif mar > 0.3:      fatigue_score += 15
+
+    if fatigue_score >= 50:
+        level, label, color = "Tinggi", "Fatigued",  "#ef4444"
+        message = "Sistem mendeteksi indikasi kelelahan tinggi. Mata terlihat berat dan kurang fokus. Disarankan istirahat dari layar segera."
+    elif fatigue_score >= 20:
+        level, label, color = "Sedang", "Neutral",   "#f59e0b"
+        message = "Terdapat indikasi kelelahan ringan. Mata mulai terlihat lelah. Pertimbangkan istirahat sejenak dari aktivitas digital."
+    else:
+        level, label, color = "Rendah", "Refreshed", "#22c55e"
+        message = "Kondisi mata terlihat segar dan waspada. Tidak terdapat indikasi kelelahan digital yang signifikan."
+
+    confidence = min(60 + fatigue_score, 95)
+
+    return level, label, color, ear_avg, mar, confidence, message, glasses_detected
 
 
 def recovery_plan_tabs(challenges_by_cat, prefix):
@@ -714,7 +786,7 @@ def show_register():
 
 
 # ══════════════════════════════════════════════════════
-#  AUTH GATE — WAJIB sebelum sidebar & konten apapun
+#  AUTH GATE
 # ══════════════════════════════════════════════════════
 
 if not st.session_state.logged_in:
@@ -725,11 +797,11 @@ if not st.session_state.logged_in:
         show_register()
     else:
         show_welcome()
-    st.stop()   # ← STOP di sini; kode di bawah tidak akan dieksekusi
+    st.stop()
 
 
 # ══════════════════════════════════════════════════════
-#  SIDEBAR  (hanya muncul setelah login)
+#  SIDEBAR
 # ══════════════════════════════════════════════════════
 
 user         = st.session_state.user
@@ -738,7 +810,6 @@ display_name = user.get("full_name") or user.get("username", "User")
 st.sidebar.markdown("## 🌿 Recovera")
 st.sidebar.markdown("<hr style='border-color:#1f2937;margin:8px 0 12px;'>", unsafe_allow_html=True)
 
-# User chip
 st.sidebar.markdown(f"""
 <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);
             border-radius:12px;padding:10px 14px;margin-bottom:14px;
@@ -759,8 +830,6 @@ st.sidebar.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-
-# Menu navigation — urutan baru
 for item in MENU_ITEMS:
     is_active = st.session_state.menu == item
     label     = f"**{item}**" if is_active else item
@@ -987,6 +1056,8 @@ if menu == "Beranda":
         """, unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+
+    # ── CTA ──
     st.markdown("""
     <div style="background:linear-gradient(135deg,#052e16,#14532d,#166534);
                 border:1px solid rgba(34,197,94,0.3);border-radius:20px;
@@ -1003,12 +1074,12 @@ if menu == "Beranda":
         </p>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Tambahkan DI BAWAHNYA:
+
+    # ── Quote penutup ──
     st.markdown("""
     <div style="text-align:center;padding:28px 16px 8px;">
         <p style="font-size:15px;color:#6B7280;font-style:italic;line-height:1.9;margin:0;">
-            "Recovera bukan untuk mendiagnosis — tapi untuk 
+            "Recovera bukan untuk mendiagnosis — tapi untuk
             <span style="color:#22c55e;font-style:italic;">menyadarkan.</span><br>
             Karena langkah pertama menuju pemulihan adalah
             <span style="color:#22c55e;font-weight:700;font-style:italic;">
@@ -1020,11 +1091,11 @@ if menu == "Beranda":
 
 
 # ═════════════════════════════════════════════
-# PAGE: FACE CHECK
+# PAGE: FACE CHECK  (MediaPipe)
 # ═════════════════════════════════════════════
 
 elif menu == "Face Check":
-    
+
     st.markdown("""
     <div style="text-align:center;padding:32px 16px 20px;">
         <div style="display:inline-block;background:rgba(34,197,94,0.12);
@@ -1037,9 +1108,41 @@ elif menu == "Face Check":
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("Ekspresikan wajah Anda untuk mendeteksi indikasi kelelahan digital, stres ringan, dan kondisi wellness Anda.")
+    st.markdown("Arahkan wajah Anda ke kamera untuk mendeteksi indikasi kelelahan digital berdasarkan kondisi mata dan ekspresi wajah.")
+
+    # ── Panduan sebelum kamera ──
+    st.markdown("""
+    <div style="background:#111827;border:1px solid #1f2937;
+                border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+        <p style="color:#9CA3AF;font-size:13px;font-weight:700;
+                  margin:0 0 8px;letter-spacing:1px;">
+            📋 UNTUK HASIL TERBAIK
+        </p>
+        <ul style="color:#D1D5DB;font-size:13px;line-height:2;
+                   margin:0;padding-left:16px;">
+            <li>Pastikan pencahayaan cukup dan merata</li>
+            <li>Posisikan wajah tepat di tengah kamera</li>
+            <li>Lepas kacamata jika memungkinkan</li>
+            <li>Hindari rambut menutupi area mata</li>
+            <li>Lepas masker wajah sebelum scan</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
 
     picture = st.camera_input("Posisikan tepat wajah Anda di depan kamera")
+
+    # ── Disclaimer setelah kamera ──
+    st.markdown("""
+    <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);
+                border-radius:12px;padding:12px 16px;margin-top:8px;">
+        <p style="color:#F59E0B;font-size:13px;margin:0;line-height:1.7;">
+            ⚠️ <b>Disclaimer:</b> Hasil Face Check hanya bersifat indikatif berdasarkan
+            kondisi mata dan wajah, <b>bukan diagnosis medis</b>. Akurasi dapat dipengaruhi
+            oleh pencahayaan, sudut kamera, kacamata, dan kondisi fisik wajah.
+            Gunakan sebagai <i>self-awareness tool</i> saja.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     if picture is not None:
         image     = Image.open(picture)
@@ -1051,86 +1154,69 @@ elif menu == "Face Check":
         stat_f.info("Memuat model deteksi wajah...")
         prog_f.progress(30)
 
-        detector = load_fer_model()
-        stat_f.info("Menganalisis ekspresi wajah...")
+        face_mesh = load_mediapipe_model()
+        stat_f.info("Menganalisis kondisi wajah...")
         prog_f.progress(70)
 
-        result = detector.detect_emotions(img_array)
+        result = analyze_with_mediapipe(img_array, face_mesh)
         prog_f.progress(100)
         stat_f.empty()
 
-        if not result:
+        if result[0] is None:
             st.warning("Wajah tidak terdeteksi. Pastikan pencahayaan cukup dan wajah terlihat jelas.")
         else:
-            emotions   = result[0]["emotions"]
-            emotion    = max(emotions, key=emotions.get)
-            confidence = emotions[emotion] * 100
+            level, label, color, ear, mar, confidence, message, glasses_detected = result
 
-            EMOTION_MAP = {
-                "happy":   ("Happy",      "Rendah", "#22c55e",
-                            "Tidak terdapat indikasi digital fatigue berlebihan. Kondisi emosional terlihat positif, stabil, dan fokus masih terjaga."),
-                "neutral": ("Neutral",    "Sedang", "#f59e0b",
-                            "Ekspresi wajah terlihat netral, namun sistem mendeteksi kemungkinan kelelahan ringan. Disarankan menjaga recovery dan kualitas tidur."),
-                "sad":     ("Sad",        "Tinggi", "#ef4444",
-                            "Sistem mendeteksi indikasi kelelahan emosional atau tekanan mental ringan. Kurangi overstimulasi digital dan berikan waktu recovery."),
-                "angry":   ("Frustrated", "Tinggi", "#fb7185",
-                            "Terdapat indikasi frustrasi atau stres ringan. Disarankan mengurangi screen time dan melakukan recovery mental."),
-                "fear":    ("Anxious",    "Tinggi", "#a855f7",
-                            "Sistem mendeteksi tanda kecemasan. Istirahat dari stimulasi digital dan coba teknik grounding sederhana."),
-                "surprise":("Surprised",  "Rendah", "#38bdf8",
-                            "Ekspresi menunjukkan kondisi waspada dan penuh perhatian."),
-                "disgust": ("Discomfort", "Sedang", "#f97316",
-                            "Terdapat indikasi ketidaknyamanan. Pertimbangkan istirahat sejenak dari aktivitas saat ini."),
-            }
-            emotion_label, fatigue_level, color, message = EMOTION_MAP.get(
-                emotion,
-                ("Stabil", "Rendah", "#38bdf8", "Kondisi emosional terlihat cukup stabil dan tidak terdapat indikasi fatigue berlebihan."),
-            )
+            # ── Peringatan kacamata ──
+            if glasses_detected:
+                st.warning("👓 Terdeteksi kemungkinan kacamata. Hasil analisis mata mungkin kurang akurat. Lepas kacamata untuk hasil terbaik.")
 
+            # ── Hasil utama ──
             st.markdown(f"""
             <div style="background:#111827;padding:20px;border-radius:18px;
                         border-left:6px solid {color};margin:16px 0;">
-                <h3 style="color:white;margin-top:0;font-size:18px;">Emotion Detection: {emotion_label}</h3>
+                <h3 style="color:white;margin-top:0;font-size:18px;">
+                    Kondisi Wajah: {label}
+                </h3>
                 <p style="color:{color};font-size:18px;font-weight:700;margin:4px 0;">
-                    Fatigue Level: {fatigue_level}
+                    Fatigue Level: {level}
                 </p>
-                <p style="color:#9ca3af;font-size:13px;margin:4px 0 10px;">Confidence: {confidence:.1f}%</p>
-                <p style="color:#D1D5DB;font-size:15px;line-height:1.7;margin:0;">{message}</p>
+                <p style="color:#9ca3af;font-size:13px;margin:4px 0 10px;">
+                    Confidence: {confidence:.0f}% &nbsp;|&nbsp;
+                    EAR: {ear:.3f} &nbsp;|&nbsp;
+                    MAR: {mar:.3f}
+                </p>
+                <p style="color:#D1D5DB;font-size:15px;line-height:1.7;margin:0;">
+                    {message}
+                </p>
             </div>
             """, unsafe_allow_html=True)
 
-            st.subheader("Distribusi Semua Emosi Terdeteksi")
-            emo_df = pd.DataFrame(list(emotions.items()), columns=["Emosi", "Skor"]).sort_values("Skor", ascending=True)
-            emo_df["Skor_pct"] = (emo_df["Skor"] * 100).round(1)
-            emo_df["Warna"]    = emo_df["Emosi"].apply(lambda e: EMOTION_MAP.get(e, ("","","#6b7280",""))[2])
-            fig_emo = go.Figure(go.Bar(
-                x=emo_df["Skor_pct"], y=emo_df["Emosi"], orientation="h",
-                marker_color=emo_df["Warna"],
-                text=emo_df["Skor_pct"].apply(lambda v: f"{v:.1f}%"), textposition="outside",
+            # ── Visualisasi EAR & MAR ──
+            st.subheader("Indikator Kondisi Wajah")
+            fig_mp = go.Figure()
+            fig_mp.add_trace(go.Bar(
+                x=["Eye Openness (EAR)", "Mouth Openness (MAR)"],
+                y=[ear, mar],
+                marker_color=[color, "#6366f1"],
+                text=[f"{ear:.3f}", f"{mar:.3f}"],
+                textposition="outside",
             ))
-            fig_emo.update_layout(
+            fig_mp.add_hline(y=0.20, line_dash="dash", line_color="#ef4444",
+                             annotation_text="Batas Lelah (EAR)")
+            fig_mp.add_hline(y=0.30, line_dash="dash", line_color="#f59e0b",
+                             annotation_text="Batas Menguap (MAR)")
+            fig_mp.update_layout(
                 paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
-                font=dict(color="white", size=13), height=300,
-                margin=dict(l=10, r=50, t=10, b=10),
-                xaxis=dict(range=[0, 115], showgrid=False, title="Skor (%)"),
-                yaxis=dict(showgrid=False),
+                font=dict(color="white"), height=280,
+                margin=dict(t=20, b=20, l=10, r=10),
+                yaxis=dict(range=[0, 0.8], title="Nilai Rasio"),
             )
-            st.plotly_chart(fig_emo, use_container_width=True, config=PLOTLY_CFG)
+            st.plotly_chart(fig_mp, use_container_width=True, config=PLOTLY_CFG)
 
-            st.subheader("Saran Spesifik untuk Kondisi Anda")
-            if emotion == "angry":
-                st.markdown("""
-                <div style="background:#1f1015;border:1px solid #fb7185;border-radius:14px;padding:18px;">
-                    <h4 style="color:#fb7185;margin-top:0;font-size:16px;">Teknik Pernapasan 4-7-8</h4>
-                    <p style="color:#D1D5DB;font-size:15px;line-height:1.8;margin:0;">
-                        <b style="color:#f59e0b;">1.</b> Tarik napas melalui hidung — <b>4 detik</b><br>
-                        <b style="color:#f59e0b;">2.</b> Tahan napas — <b>7 detik</b><br>
-                        <b style="color:#f59e0b;">3.</b> Hembuskan perlahan melalui mulut — <b>8 detik</b><br>
-                        <b style="color:#f59e0b;">4.</b> Ulangi 3–4 kali.
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-            elif emotion == "sad":
+            # ── Saran spesifik ──
+            st.subheader("Saran untuk Kondisi Anda")
+            if level == "Tinggi":
                 st.markdown("""
                 <div style="background:#100f1f;border:1px solid #ef4444;border-radius:14px;padding:18px;">
                     <h4 style="color:#ef4444;margin-top:0;font-size:16px;">🌿 Grounding 5-4-3-2-1</h4>
@@ -1143,36 +1229,33 @@ elif menu == "Face Check":
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
-            elif emotion == "fear":
+            elif level == "Sedang":
                 st.markdown("""
-                <div style="background:#16101f;border:1px solid #a855f7;border-radius:14px;padding:18px;">
-                    <h4 style="color:#a855f7;margin-top:0;font-size:16px;">💜 Teknik Box Breathing</h4>
+                <div style="background:#1a1505;border:1px solid #f59e0b;border-radius:14px;padding:18px;">
+                    <h4 style="color:#f59e0b;margin-top:0;font-size:16px;">💨 Teknik Pernapasan 4-7-8</h4>
                     <p style="color:#D1D5DB;font-size:15px;line-height:1.8;margin:0;">
-                        <b style="color:#a855f7;">1.</b> Tarik napas — <b>4 detik</b><br>
-                        <b style="color:#a855f7;">2.</b> Tahan — <b>4 detik</b><br>
-                        <b style="color:#a855f7;">3.</b> Hembuskan — <b>4 detik</b><br>
-                        <b style="color:#a855f7;">4.</b> Tahan — <b>4 detik</b><br>
-                        Ulangi 4–6 kali.
+                        <b style="color:#f59e0b;">1.</b> Tarik napas — <b>4 detik</b><br>
+                        <b style="color:#f59e0b;">2.</b> Tahan napas — <b>7 detik</b><br>
+                        <b style="color:#f59e0b;">3.</b> Hembuskan perlahan — <b>8 detik</b><br>
+                        Ulangi 3–4 kali.
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
-            elif emotion == "neutral":
-                st.info("Kondisi netral bisa berarti kelelahan ringan yang tidak terasa. Coba istirahat 10–15 menit dari layar sebelum melanjutkan aktivitas.")
-            elif emotion == "happy":
-                st.success("Kondisi emosional Anda baik! Pertahankan pola aktivitas dan istirahat yang seimbang hari ini.")
             else:
-                st.info("Pertahankan pola istirahat dan kurangi overstimulasi digital untuk menjaga keseimbangan emosional.")
+                st.success("Kondisi mata Anda terlihat segar! Pertahankan pola istirahat dan aktivitas digital yang seimbang hari ini.")
 
+            # ── Simpan ke Journey ──
             st.markdown("---")
             face_fatigue_map = {"Rendah": 25, "Sedang": 55, "Tinggi": 80}
-            face_fatigue_pct = face_fatigue_map.get(fatigue_level, 50)
+            face_fatigue_pct = face_fatigue_map.get(level, 50)
             if st.button("Simpan Hasil Face Check ke Journey"):
                 save_history({
                     "Date":         datetime.now().strftime("%d-%m-%Y %H:%M"),
                     "Fatigue Risk": face_fatigue_pct,
-                    "Screen Time":  "—", "Stress": "—", "Sleep": "—", "Exercise": "—",
+                    "Screen Time":  "—", "Stress": "—",
+                    "Sleep":        "—", "Exercise": "—",
                 })
-                st.success(f"✅ Hasil Face Check ({emotion_label}, Fatigue {fatigue_level}) berhasil disimpan ke Journey!")
+                st.success(f"✅ Hasil Face Check ({label}, Fatigue {level}) berhasil disimpan ke Journey!")
 
 
 # ═════════════════════════════════════════════
@@ -1190,6 +1273,18 @@ elif menu == "Daily Check":
                 ✦ DAILY CHECK-IN
             </span>
         </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Disclaimer Daily Check ──
+    st.markdown("""
+    <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);
+                border-radius:12px;padding:12px 16px;margin-bottom:16px;">
+        <p style="color:#F59E0B;font-size:13px;margin:0;line-height:1.7;">
+            ⚠️ <b>Disclaimer:</b> Hasil analisis Daily Check merupakan <b>estimasi</b> berdasarkan
+            data yang Anda isi sendiri dan model machine learning. Hasil ini bukan diagnosis klinis
+            dan tidak menggantikan konsultasi dengan profesional kesehatan mental.
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1773,8 +1868,8 @@ elif menu == "Guide":
             terus memproduksi <b style="color:#C084FC;">dopamin</b> (zat kimia "kesenangan").
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
-            Masalahnya: semakin sering dopamin dipicu oleh hal mudah (scroll), 
-            maka semakin sulit otak untuk menikmati aktivitas yang membutuhkan usaha — seperti belajar, membaca, 
+            Masalahnya: semakin sering dopamin dipicu oleh hal mudah (scroll),
+            maka semakin sulit otak untuk menikmati aktivitas yang membutuhkan usaha — seperti belajar, membaca,
             atau mengerjakan tugas.
         </p>
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
@@ -1860,17 +1955,18 @@ elif menu == "Guide":
         </p>
     </div>
     """, unsafe_allow_html=True)
-    
+
+    # ── Disclaimer global Guide ──
     st.markdown("""
     <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);
-                border-radius:14px;padding:18px 20px;margin-top:8px;">
+                border-radius:14px;padding:18px 20px;margin-top:16px;">
         <p style="color:#FCA5A5;font-size:14px;font-weight:700;margin:0 0 8px;">
             🔴 Penting untuk Diketahui
         </p>
         <p style="color:#D1D5DB;font-size:13px;line-height:1.8;margin:0;">
             Recovera adalah <b style="color:white;">alat bantu kesadaran diri (self-awareness tool)</b>,
             bukan aplikasi medis. Seluruh hasil analisis — baik dari Face Check maupun Daily Check —
-            bersifat prediksi dan <b style="color:white;">tidak menggantikan diagnosis atau konsultasi
+            bersifat estimasi dan <b style="color:white;">tidak menggantikan diagnosis atau konsultasi
             profesional kesehatan mental</b>.<br><br>
             Jika Anda merasa mengalami gangguan mental yang serius, segera hubungi profesional
             atau layanan kesehatan terdekat.
