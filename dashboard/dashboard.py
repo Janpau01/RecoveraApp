@@ -336,6 +336,22 @@ input[type="number"] {
     .logo-ring { width: 88px; height: 88px; font-size: 40px; }
 }
 
+/* ── Fix alignment mobile ── */
+@media (max-width: 768px) {
+    .logo-ring {
+        display: flex !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+    h1, h2, h3 {
+        text-align: center !important;
+        width: 100% !important;
+    }
+    .stApp > div {
+        align-items: center !important;
+    }
+}
+
 .mobile-hint { display: none; }
 </style>
 """, unsafe_allow_html=True)
@@ -615,15 +631,31 @@ def recovery_plan_tabs(challenges_by_cat, prefix):
 
 def show_welcome():
     st.markdown("""
-    <div style="text-align:center;padding:48px 16px 24px;">
-        <div class="logo-ring anim-1">🌿</div>
+    <div style="
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:center;
+        text-align:center;
+        padding:48px 16px 24px;
+        width:100%;
+    ">
+        <div class="logo-ring anim-1" style="
+            margin-left:auto;
+            margin-right:auto;
+            margin-bottom:24px;
+        ">🌿</div>
         <h1 class="anim-2" style="
             font-family:'Syne',sans-serif;
             font-size:clamp(38px,8vw,68px);
             font-weight:800;
             background:linear-gradient(135deg,#ffffff 0%,#a3e635 50%,#22c55e 100%);
             -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-            background-clip:text;line-height:1.1;margin:0 0 14px;">
+            background-clip:text;line-height:1.1;
+            margin:0 0 14px;
+            width:100%;
+            text-align:center;
+        ">
             Recovera
         </h1>
         <p class="anim-3" style="
