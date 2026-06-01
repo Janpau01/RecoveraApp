@@ -526,7 +526,7 @@ def require_wellness_check():
         st.stop()
 
 
-# ── BARU: Fungsi analisis MediaPipe ──
+# ── Fungsi analisis MediaPipe — berbasis ekspresi wajah ──
 def analyze_with_mediapipe(img_array, face_mesh):
     results = face_mesh.process(img_array)
 
@@ -548,13 +548,42 @@ def analyze_with_mediapipe(img_array, face_mesh):
     right_v   = np.linalg.norm(get_point(386) - get_point(374))
     right_h   = np.linalg.norm(get_point(362) - get_point(263))
     ear_right = right_v / (right_h + 1e-6)
-
-    ear_avg = (ear_left + ear_right) / 2.0
+    ear_avg   = (ear_left + ear_right) / 2.0
 
     # ── Mouth Aspect Ratio (MAR) ──
     mouth_v = np.linalg.norm(get_point(13)  - get_point(14))
     mouth_h = np.linalg.norm(get_point(78)  - get_point(308))
     mar     = mouth_v / (mouth_h + 1e-6)
+
+    # ── Brow Lower Ratio (BLR) — alis turun = marah/stres/tegang ──
+    face_h       = np.linalg.norm(get_point(10) - get_point(152)) + 1e-6
+    left_brow_y  = (get_point(70)[1] + get_point(63)[1]) / 2
+    left_eye_y   = get_point(159)[1]
+    blr_left     = (left_eye_y - left_brow_y) / face_h
+
+    right_brow_y = (get_point(300)[1] + get_point(293)[1]) / 2
+    right_eye_y  = get_point(386)[1]
+    blr_right    = (right_eye_y - right_brow_y) / face_h
+    blr_avg      = (blr_left + blr_right) / 2.0
+
+    # ── Mouth Corner Ratio (MCR) — sudut mulut turun = sedih/lelah ──
+    mouth_center_y   = get_point(13)[1]
+    mouth_corner_avg = (get_point(61)[1] + get_point(291)[1]) / 2
+    mcr = (mouth_corner_avg - mouth_center_y) / face_h
+
+    # ── Eye Asymmetry — asimetri mata = lelah/tegang ──
+    ear_asymmetry = abs(ear_left - ear_right)
+
+    # ── Nose Width Ratio (NWR) — hidung menyempit = marah/jijik ──
+    nose_w = np.linalg.norm(get_point(49) - get_point(279))
+    face_w = np.linalg.norm(get_point(234) - get_point(454)) + 1e-6
+    nwr    = nose_w / face_w
+
+    # ── Head Tilt — kepala miring = mengantuk ──
+    left_eye_center  = (get_point(33) + get_point(133)) / 2
+    right_eye_center = (get_point(362) + get_point(263)) / 2
+    eye_delta        = right_eye_center - left_eye_center
+    head_tilt        = abs(eye_delta[1]) / (abs(eye_delta[0]) + 1e-6)
 
     # ── Deteksi Kacamata ──
     lm_eye  = landmarks[33]
@@ -564,27 +593,89 @@ def analyze_with_mediapipe(img_array, face_mesh):
     eye_region       = img_array[ey1:ey2, ex1:ex2]
     glasses_detected = np.mean(eye_region) > 200 if eye_region.size > 0 else False
 
-    # ── Klasifikasi Fatigue ──
-    fatigue_score = 0
+    # ══════════════════════════════════════════
+    # SKOR AKUMULATIF BERBASIS EKSPRESI
+    # ══════════════════════════════════════════
+    fatigue_score   = 0
+    expression_tags = []
 
-    if ear_avg < 0.15:   fatigue_score += 50
-    elif ear_avg < 0.20: fatigue_score += 30
-    elif ear_avg < 0.25: fatigue_score += 15
+    # --- EAR: keterbukaan mata ---
+    if ear_avg < 0.18:
+        fatigue_score += 40
+        expression_tags.append("mata_hampir_tertutup")
+    elif ear_avg < 0.23:
+        fatigue_score += 25
+        expression_tags.append("mata_setengah_terbuka")
+    elif ear_avg < 0.28:
+        fatigue_score += 10
+        expression_tags.append("mata_sedikit_lelah")
 
-    if mar > 0.5:        fatigue_score += 30
-    elif mar > 0.3:      fatigue_score += 15
+    # --- MAR: menguap ---
+    if mar > 0.45:
+        fatigue_score += 30
+        expression_tags.append("menguap")
+    elif mar > 0.25:
+        fatigue_score += 15
+        expression_tags.append("mulut_terbuka_ringan")
 
+    # --- BLR: alis turun = marah/stres/tegang ---
+    if blr_avg < 0.12:
+        fatigue_score += 25
+        expression_tags.append("alis_turun_tegang")
+    elif blr_avg < 0.16:
+        fatigue_score += 15
+        expression_tags.append("alis_sedikit_turun")
+
+    # --- MCR: sudut mulut turun = sedih/lelah ---
+    if mcr > 0.04:
+        fatigue_score += 20
+        expression_tags.append("mulut_cemberut")
+    elif mcr > 0.02:
+        fatigue_score += 10
+        expression_tags.append("mulut_sedikit_turun")
+
+    # --- Asimetri mata = lelah/tegang ---
+    if ear_asymmetry > 0.06:
+        fatigue_score += 15
+        expression_tags.append("asimetri_mata")
+    elif ear_asymmetry > 0.04:
+        fatigue_score += 8
+        expression_tags.append("asimetri_ringan")
+
+    # --- Head tilt = mengantuk ---
+    if head_tilt > 0.15:
+        fatigue_score += 15
+        expression_tags.append("kepala_miring")
+    elif head_tilt > 0.08:
+        fatigue_score += 8
+        expression_tags.append("kepala_sedikit_miring")
+
+    # --- NWR: hidung berkerut = marah/jijik ---
+    if nwr < 0.28:
+        fatigue_score += 10
+        expression_tags.append("hidung_berkerut")
+
+    # ── Tentukan level, label, pesan ──
     if fatigue_score >= 50:
-        level, label, color = "Tinggi", "Fatigued",  "#ef4444"
-        message = "Sistem mendeteksi indikasi kelelahan tinggi. Mata terlihat berat dan kurang fokus. Disarankan istirahat dari layar segera."
-    elif fatigue_score >= 20:
-        level, label, color = "Sedang", "Neutral",   "#f59e0b"
-        message = "Terdapat indikasi kelelahan ringan. Mata mulai terlihat lelah. Pertimbangkan istirahat sejenak dari aktivitas digital."
+        level, label, color = "Tinggi", "Fatigued", "#ef4444"
+        message = "Sistem mendeteksi indikasi kelelahan tinggi berdasarkan ekspresi wajah Anda. Disarankan istirahat dari layar segera."
+    elif fatigue_score >= 25:
+        level, label, color = "Sedang", "Strained", "#f59e0b"
+        message = "Terdapat indikasi kelelahan atau ketegangan ringan pada ekspresi wajah Anda. Pertimbangkan istirahat sejenak."
     else:
         level, label, color = "Rendah", "Refreshed", "#22c55e"
-        message = "Kondisi mata terlihat segar dan waspada. Tidak terdapat indikasi kelelahan digital yang signifikan."
+        message = "Ekspresi wajah Anda menunjukkan kondisi segar. Tidak terdapat indikasi kelelahan yang signifikan."
 
-    confidence = min(60 + fatigue_score, 95)
+    # ── Confidence berbasis jumlah sinyal terdeteksi ──
+    signal_count = len(expression_tags)
+    if signal_count == 0:
+        confidence = 72
+    elif signal_count <= 2:
+        confidence = 78
+    elif signal_count <= 4:
+        confidence = 84
+    else:
+        confidence = min(88 + signal_count, 95)
 
     return level, label, color, ear_avg, mar, confidence, message, glasses_detected
 
@@ -1227,6 +1318,86 @@ elif menu == "Face Check":
             </div>
             """, unsafe_allow_html=True)
 
+            # ── Sinyal Ekspresi yang Terdeteksi ──
+            # Jalankan ulang analisis untuk dapat expression_tags
+            results2       = face_mesh.process(img_array)
+            expression_tags = []
+            if results2.multi_face_landmarks:
+                lm2 = results2.multi_face_landmarks[0].landmark
+                h2, w2 = img_array.shape[:2]
+                def gp(idx):
+                    p = lm2[idx]
+                    return np.array([p.x * w2, p.y * h2])
+                fh2   = np.linalg.norm(gp(10) - gp(152)) + 1e-6
+                fw2   = np.linalg.norm(gp(234) - gp(454)) + 1e-6
+                ev2_l = np.linalg.norm(gp(159)-gp(145)) / (np.linalg.norm(gp(133)-gp(33)) + 1e-6)
+                ev2_r = np.linalg.norm(gp(386)-gp(374)) / (np.linalg.norm(gp(362)-gp(263)) + 1e-6)
+                ear2  = (ev2_l + ev2_r) / 2.0
+                mar2  = np.linalg.norm(gp(13)-gp(14)) / (np.linalg.norm(gp(78)-gp(308)) + 1e-6)
+                blr2  = ((gp(159)[1]-((gp(70)[1]+gp(63)[1])/2)) + (gp(386)[1]-((gp(300)[1]+gp(293)[1])/2))) / 2 / fh2
+                mcr2  = ((gp(61)[1]+gp(291)[1])/2 - gp(13)[1]) / fh2
+                asym2 = abs(ev2_l - ev2_r)
+                nwr2  = np.linalg.norm(gp(49)-gp(279)) / fw2
+                ec2   = (gp(33)+gp(133))/2; ec2r = (gp(362)+gp(263))/2
+                ed2   = ec2r - ec2
+                tilt2 = abs(ed2[1]) / (abs(ed2[0]) + 1e-6)
+
+                SIGNAL_LABELS = {
+                    "mata_hampir_tertutup":   "😴 Mata hampir tertutup",
+                    "mata_setengah_terbuka":  "👁 Mata setengah terbuka",
+                    "mata_sedikit_lelah":     "🔆 Mata sedikit lelah",
+                    "menguap":                "🥱 Menguap terdeteksi",
+                    "mulut_terbuka_ringan":   "💬 Mulut terbuka ringan",
+                    "alis_turun_tegang":      "😠 Alis turun — tegang/marah",
+                    "alis_sedikit_turun":     "😟 Alis sedikit turun",
+                    "mulut_cemberut":         "😞 Sudut mulut turun — sedih",
+                    "mulut_sedikit_turun":    "😐 Mulut sedikit turun",
+                    "asimetri_mata":          "⚠️ Asimetri mata — tegang",
+                    "asimetri_ringan":        "〰️ Asimetri mata ringan",
+                    "kepala_miring":          "😪 Kepala miring — mengantuk",
+                    "kepala_sedikit_miring":  "↗️ Kepala sedikit miring",
+                    "hidung_berkerut":        "😤 Hidung berkerut — marah",
+                }
+                if ear2 < 0.18:   expression_tags.append("mata_hampir_tertutup")
+                elif ear2 < 0.23: expression_tags.append("mata_setengah_terbuka")
+                elif ear2 < 0.28: expression_tags.append("mata_sedikit_lelah")
+                if mar2 > 0.45:   expression_tags.append("menguap")
+                elif mar2 > 0.25: expression_tags.append("mulut_terbuka_ringan")
+                if blr2 < 0.12:   expression_tags.append("alis_turun_tegang")
+                elif blr2 < 0.16: expression_tags.append("alis_sedikit_turun")
+                if mcr2 > 0.04:   expression_tags.append("mulut_cemberut")
+                elif mcr2 > 0.02: expression_tags.append("mulut_sedikit_turun")
+                if asym2 > 0.06:  expression_tags.append("asimetri_mata")
+                elif asym2 > 0.04:expression_tags.append("asimetri_ringan")
+                if tilt2 > 0.15:  expression_tags.append("kepala_miring")
+                elif tilt2 > 0.08:expression_tags.append("kepala_sedikit_miring")
+                if nwr2 < 0.28:   expression_tags.append("hidung_berkerut")
+
+            if expression_tags:
+                tag_html = "".join(
+                    f'<span style="display:inline-block;background:#1f2937;border:1px solid #374151;'
+                    f'border-radius:20px;padding:4px 12px;font-size:12px;color:#d1d5db;margin:3px;">'
+                    f'{SIGNAL_LABELS.get(t, t)}</span>'
+                    for t in expression_tags
+                )
+                st.markdown(f"""
+                <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;padding:14px 16px;margin:8px 0;">
+                    <p style="color:#9CA3AF;font-size:12px;font-weight:700;letter-spacing:1px;margin:0 0 8px;">
+                        🔍 SINYAL EKSPRESI TERDETEKSI
+                    </p>
+                    <div>{tag_html}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;padding:14px 16px;margin:8px 0;">
+                    <p style="color:#9CA3AF;font-size:12px;font-weight:700;letter-spacing:1px;margin:0 0 4px;">
+                        🔍 SINYAL EKSPRESI TERDETEKSI
+                    </p>
+                    <p style="color:#4b5563;font-size:13px;margin:0;">Tidak ada sinyal kelelahan terdeteksi — ekspresi terlihat netral dan segar.</p>
+                </div>
+                """, unsafe_allow_html=True)
+
             # ── Visualisasi EAR & MAR ──
             st.subheader("Indikator Kondisi Wajah")
             fig_mp = go.Figure()
@@ -1237,9 +1408,9 @@ elif menu == "Face Check":
                 text=[f"{ear:.3f}", f"{mar:.3f}"],
                 textposition="outside",
             ))
-            fig_mp.add_hline(y=0.20, line_dash="dash", line_color="#ef4444",
+            fig_mp.add_hline(y=0.23, line_dash="dash", line_color="#ef4444",
                              annotation_text="Batas Lelah (EAR)")
-            fig_mp.add_hline(y=0.30, line_dash="dash", line_color="#f59e0b",
+            fig_mp.add_hline(y=0.25, line_dash="dash", line_color="#f59e0b",
                              annotation_text="Batas Menguap (MAR)")
             fig_mp.update_layout(
                 paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
@@ -1277,7 +1448,7 @@ elif menu == "Face Check":
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.success("Kondisi mata Anda terlihat segar! Pertahankan pola istirahat dan aktivitas digital yang seimbang hari ini.")
+                st.success("Kondisi wajah Anda terlihat segar! Pertahankan pola istirahat dan aktivitas digital yang seimbang hari ini.")
 
             # ── Simpan ke Journey ──
             st.markdown("---")
