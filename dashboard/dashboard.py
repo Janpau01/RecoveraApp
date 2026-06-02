@@ -363,118 +363,12 @@ input[type="number"] {
 # ─────────────────────────────────────────────
 
 def get_user_files(username: str):
-    """Kembalikan path history, mood, dan wellness per user."""
+    """Kembalikan path history & mood khusus untuk user ini."""
     os.makedirs("data/users", exist_ok=True)
     return (
         f"data/users/{username}_history.csv",
         f"data/users/{username}_mood.csv",
     )
-
-def get_wellness_file(username: str) -> str:
-    """Path file wellness_result terakhir per user."""
-    os.makedirs("data/users", exist_ok=True)
-    return f"data/users/{username}_wellness.csv"
-
-def save_wellness_result(username: str, result: dict):
-    """Simpan wellness_result ke CSV agar tidak hilang saat refresh."""
-    try:
-        pd.DataFrame([result]).to_csv(get_wellness_file(username), index=False)
-    except Exception:
-        pass
-
-def load_wellness_result(username: str) -> dict:
-    """Load wellness_result dari CSV saat login."""
-    try:
-        path = get_wellness_file(username)
-        if os.path.exists(path):
-            df = pd.read_csv(path)
-            if not df.empty:
-                return df.iloc[0].to_dict()
-    except Exception:
-        pass
-    return None
-
-def get_face_result_file(username: str) -> str:
-    os.makedirs("data/users", exist_ok=True)
-    return f"data/users/{username}_face.csv"
-
-def save_face_result(username: str, result: dict):
-    """Simpan hasil Face Check terakhir per user."""
-    try:
-        pd.DataFrame([result]).to_csv(get_face_result_file(username), index=False)
-    except Exception:
-        pass
-
-def load_face_result(username: str) -> dict:
-    try:
-        path = get_face_result_file(username)
-        if os.path.exists(path):
-            df = pd.read_csv(path)
-            if not df.empty:
-                return df.iloc[0].to_dict()
-    except Exception:
-        pass
-    return None
-
-def compute_combined_score(face_result: dict, wellness_result: dict) -> dict:
-    """Gabungkan hasil Face Check (30%) + Daily Check (70%) jadi Combined Score."""
-    if not face_result or not wellness_result:
-        return None
-    face_map   = {"Rendah": 25, "Sedang": 55, "Tinggi": 80}
-    face_pct   = face_map.get(str(face_result.get("level", "Rendah")), 50)
-    daily_pct  = float(wellness_result.get("fatigue_percent", 50))
-    combined   = round(face_pct * 0.30 + daily_pct * 0.70, 1)
-    if combined <= 35:   status = "🟢 Stabil"
-    elif combined <= 65: status = "🟡 Mulai Lelah"
-    elif combined <= 85: status = "🟠 Risiko Tinggi"
-    else:                status = "🔴 Near-Burnout"
-    return {"score": combined, "status": status}
-
-def get_burnout_streak(history_df: pd.DataFrame) -> int:
-    """Hitung berapa hari berturut-turut kondisi buruk (fatigue > 65)."""
-    if history_df.empty or "Fatigue Risk" not in history_df.columns:
-        return 0
-    vals  = history_df["Fatigue Risk"].tolist()[-7:]
-    streak = 0
-    for v in reversed(vals):
-        try:
-            if float(v) > 65:
-                streak += 1
-            else:
-                break
-        except Exception:
-            break
-    return streak
-
-def validate_daily_input(screen_time, sleep_hours, stress_level,
-                          social_media, exercise, productivity,
-                          history_df: pd.DataFrame):
-    """Validasi input Daily Check — bandingkan dengan hari sebelumnya."""
-    warnings_list = []
-    if screen_time == 0 and social_media == 0:
-        warnings_list.append("⚠️ Screen time dan media sosial 0 jam — apakah data ini akurat?")
-    if exercise >= 180:
-        warnings_list.append("⚠️ Durasi olahraga ≥ 3 jam — pastikan data ini benar.")
-    if sleep_hours >= 12:
-        warnings_list.append("⚠️ Tidur ≥ 12 jam tidak biasa — pastikan data ini benar.")
-    if screen_time >= 20:
-        warnings_list.append("⚠️ Screen time ≥ 20 jam sangat ekstrem — pastikan data ini benar.")
-    if not history_df.empty and len(history_df) >= 1:
-        try:
-            last = history_df.iloc[-1]
-            last_st = pd.to_numeric(last.get("Screen Time", None), errors="coerce")
-            last_sl = pd.to_numeric(last.get("Sleep", None), errors="coerce")
-            if pd.notna(last_st) and abs(screen_time - last_st) >= 8:
-                warnings_list.append(
-                    f"⚠️ Screen time berubah drastis dari {last_st:.0f} jam "
-                    f"kemarin menjadi {screen_time:.0f} jam hari ini.")
-            if pd.notna(last_sl) and abs(sleep_hours - last_sl) >= 5:
-                warnings_list.append(
-                    f"⚠️ Durasi tidur berubah drastis dari {last_sl:.0f} jam "
-                    f"kemarin menjadi {sleep_hours:.0f} jam hari ini.")
-        except Exception:
-            pass
-    return warnings_list
 
 # ─────────────────────────────────────────────
 # SESSION STATE
@@ -488,8 +382,7 @@ defaults = {
     "face_result":      None,
     "logged_in":        False,
     "user":             None,
-    "auth_screen":      "welcome",
-    "show_onboarding":  False,
+    "auth_screen":      "welcome",  # welcome | login | register
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -497,8 +390,7 @@ for k, v in defaults.items():
 
 if "progress_history" not in st.session_state:
     if st.session_state.logged_in and st.session_state.user:
-        uname = st.session_state.user["username"]
-        _hf, _mf = get_user_files(uname)
+        _hf, _mf = get_user_files(st.session_state.user["username"])
         st.session_state.progress_history = (
             pd.read_csv(_hf).to_dict("records")
             if os.path.exists(_hf) else []
@@ -507,11 +399,6 @@ if "progress_history" not in st.session_state:
             pd.read_csv(_mf).to_dict("records")
             if os.path.exists(_mf) else []
         )
-        # ── Load wellness_result & face_result dari file ──
-        if st.session_state.wellness_result is None:
-            st.session_state.wellness_result = load_wellness_result(uname)
-        if st.session_state.face_result is None:
-            st.session_state.face_result = load_face_result(uname)
     else:
         st.session_state.progress_history = []
         st.session_state.mood_history     = []
@@ -932,14 +819,9 @@ def show_login():
             else:
                 ok, user = login_user(identifier, password)
                 if ok:
-                    is_new = not os.path.exists(get_wellness_file(user["username"]))
-                    st.session_state.logged_in   = True
-                    st.session_state.user        = user
+                    st.session_state.logged_in  = True
+                    st.session_state.user       = user
                     st.session_state.auth_screen = "welcome"
-                    st.session_state.show_onboarding = is_new
-                    # load persisted results
-                    st.session_state.wellness_result = load_wellness_result(user["username"])
-                    st.session_state.face_result     = load_face_result(user["username"])
                     st.success(f"Halo, {user['full_name'] or user['username']}! 👋")
                     st.rerun()
                 else:
@@ -1098,54 +980,6 @@ if st.sidebar.button("🚪 Keluar", use_container_width=True, key="logout_btn"):
     st.rerun()
 
 menu = st.session_state.menu
-
-# ══════════════════════════════════════════════════════
-#  ONBOARDING MODAL (hanya muncul pertama kali login)
-# ══════════════════════════════════════════════════════
-
-if st.session_state.get("show_onboarding", False):
-    st.markdown("""
-    <div style="background:linear-gradient(135deg,#0f172a,#1a2035);border:2px solid rgba(34,197,94,0.4);
-                border-radius:20px;padding:28px 24px;margin-bottom:24px;">
-        <p style="color:#22c55e;font-size:12px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;margin:0 0 12px;">✦ SELAMAT DATANG DI RECOVERA</p>
-        <h2 style="color:white;font-size:20px;font-weight:800;margin:0 0 16px;">
-            Cara Terbaik Menggunakan Recovera 🌿
-        </h2>
-        <div style="display:grid;gap:10px;margin-bottom:18px;">
-            <div style="background:#111827;border-radius:12px;padding:12px 16px;
-                        display:flex;align-items:center;gap:14px;border-left:3px solid #EC4899;">
-                <span style="font-size:22px;">📸</span>
-                <div>
-                    <p style="color:white;font-size:14px;font-weight:700;margin:0;">Langkah 1 — Face Check</p>
-                    <p style="color:#9ca3af;font-size:12px;margin:0;">Mulai dengan scan wajahmu untuk deteksi awal kondisi kelelahan.</p>
-                </div>
-            </div>
-            <div style="background:#111827;border-radius:12px;padding:12px 16px;
-                        display:flex;align-items:center;gap:14px;border-left:3px solid #3B82F6;">
-                <span style="font-size:22px;">📋</span>
-                <div>
-                    <p style="color:white;font-size:14px;font-weight:700;margin:0;">Langkah 2 — Daily Check</p>
-                    <p style="color:#9ca3af;font-size:12px;margin:0;">Isi data aktivitas harianmu untuk analisis yang lebih lengkap dan akurat.</p>
-                </div>
-            </div>
-            <div style="background:#111827;border-radius:12px;padding:12px 16px;
-                        display:flex;align-items:center;gap:14px;border-left:3px solid #22c55e;">
-                <span style="font-size:22px;">🎯</span>
-                <div>
-                    <p style="color:white;font-size:14px;font-weight:700;margin:0;">Hasil Terbaik</p>
-                    <p style="color:#9ca3af;font-size:12px;margin:0;">Kombinasi Face Check + Daily Check menghasilkan <b style="color:#22c55e;">Combined Score</b> yang lebih akurat.</p>
-                </div>
-            </div>
-        </div>
-        <p style="color:#6b7280;font-size:12px;text-align:center;margin:0;">
-            Panduan ini hanya muncul sekali. Kunjungi halaman <b style="color:#9ca3af;">Guide</b> untuk info lengkap.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    if st.button("✅ Mengerti, Mulai Sekarang!", use_container_width=True):
-        st.session_state.show_onboarding = False
-        st.rerun()
 
 
 # ═════════════════════════════════════════════
@@ -1590,52 +1424,14 @@ elif menu == "Face Check":
             st.subheader("Saran untuk Kondisi Anda")
             if level == "Tinggi":
                 st.markdown("""
-                <div style="background:#100f1f;border:1px solid #ef4444;border-radius:14px;padding:18px;margin-bottom:10px;">
-                    <h4 style="color:#ef4444;margin-top:0;font-size:16px;">🌿 Teknik Grounding 5-4-3-2-1</h4>
-                    <p style="color:#9ca3af;font-size:13px;line-height:1.7;margin:0 0 14px;">
-                        Teknik psikologi sederhana untuk menenangkan pikiran yang lelah atau cemas.
-                        Caranya: perhatikan lingkungan sekitarmu secara sadar menggunakan 5 indera.
-                        Lakukan perlahan, tidak perlu terburu-buru.
-                    </p>
-                    <div style="display:grid;gap:8px;">
-                        <div style="background:#1a0f0f;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:12px;">
-                            <span style="background:#ef4444;color:white;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">5</span>
-                            <div>
-                                <p style="color:white;font-size:14px;font-weight:600;margin:0;">Lihat 👀</p>
-                                <p style="color:#9ca3af;font-size:12px;margin:0;">Sebutkan 5 benda yang bisa kamu lihat sekarang. Contoh: meja, lampu, jendela, botol, kursi.</p>
-                            </div>
-                        </div>
-                        <div style="background:#1a0f0f;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:12px;">
-                            <span style="background:#f97316;color:white;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">4</span>
-                            <div>
-                                <p style="color:white;font-size:14px;font-weight:600;margin:0;">Sentuh ✋</p>
-                                <p style="color:#9ca3af;font-size:12px;margin:0;">Sentuh 4 benda dan rasakan teksturnya. Contoh: meja (keras), baju (lembut), rambut, lantai.</p>
-                            </div>
-                        </div>
-                        <div style="background:#1a0f0f;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:12px;">
-                            <span style="background:#f59e0b;color:white;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">3</span>
-                            <div>
-                                <p style="color:white;font-size:14px;font-weight:600;margin:0;">Dengar 👂</p>
-                                <p style="color:#9ca3af;font-size:12px;margin:0;">Dengarkan 3 suara di sekitarmu. Contoh: kipas angin, suara luar ruangan, nafas sendiri.</p>
-                            </div>
-                        </div>
-                        <div style="background:#1a0f0f;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:12px;">
-                            <span style="background:#22c55e;color:white;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">2</span>
-                            <div>
-                                <p style="color:white;font-size:14px;font-weight:600;margin:0;">Cium 👃</p>
-                                <p style="color:#9ca3af;font-size:12px;margin:0;">Cium 2 aroma di sekitarmu. Contoh: udara ruangan, parfum, makanan, atau aroma tubuh sendiri.</p>
-                            </div>
-                        </div>
-                        <div style="background:#1a0f0f;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:12px;">
-                            <span style="background:#3b82f6;color:white;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">1</span>
-                            <div>
-                                <p style="color:white;font-size:14px;font-weight:600;margin:0;">Rasakan 💙</p>
-                                <p style="color:#9ca3af;font-size:12px;margin:0;">Rasakan 1 sensasi tubuhmu saat ini. Contoh: detak jantung, rasa hangat/dingin, atau berat badan di kursi.</p>
-                            </div>
-                        </div>
-                    </div>
-                    <p style="color:#6b7280;font-size:12px;margin:12px 0 0;text-align:center;">
-                        ✦ Teknik ini membantu otak "reset" dari kelelahan dengan mengalihkan fokus ke indera nyata
+                <div style="background:#100f1f;border:1px solid #ef4444;border-radius:14px;padding:18px;">
+                    <h4 style="color:#ef4444;margin-top:0;font-size:16px;">🌿 Grounding 5-4-3-2-1</h4>
+                    <p style="color:#D1D5DB;font-size:15px;line-height:1.8;margin:0;">
+                        <b style="color:#22c55e;">5</b> hal yang bisa Anda <b>lihat</b><br>
+                        <b style="color:#22c55e;">4</b> hal yang bisa Anda <b>sentuh</b><br>
+                        <b style="color:#22c55e;">3</b> hal yang bisa Anda <b>dengar</b><br>
+                        <b style="color:#22c55e;">2</b> hal yang bisa Anda <b>cium</b><br>
+                        <b style="color:#22c55e;">1</b> hal yang bisa Anda <b>rasakan</b>
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1643,86 +1439,21 @@ elif menu == "Face Check":
                 st.markdown("""
                 <div style="background:#1a1505;border:1px solid #f59e0b;border-radius:14px;padding:18px;">
                     <h4 style="color:#f59e0b;margin-top:0;font-size:16px;">💨 Teknik Pernapasan 4-7-8</h4>
-                    <p style="color:#9ca3af;font-size:13px;line-height:1.7;margin:0 0 14px;">
-                        Teknik pernapasan yang terbukti menurunkan stres dan ketegangan dalam hitungan menit.
-                        Lakukan di tempat duduk dengan posisi nyaman, mata boleh dipejamkan.
-                    </p>
-                    <div style="display:grid;gap:8px;">
-                        <div style="background:#12100a;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:12px;">
-                            <span style="background:#f59e0b;color:white;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">1</span>
-                            <div>
-                                <p style="color:white;font-size:14px;font-weight:600;margin:0;">Tarik Napas — 4 detik 🌬️</p>
-                                <p style="color:#9ca3af;font-size:12px;margin:0;">Hirup udara perlahan melalui hidung selama 4 hitungan. Biarkan perut mengembang.</p>
-                            </div>
-                        </div>
-                        <div style="background:#12100a;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:12px;">
-                            <span style="background:#f97316;color:white;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">2</span>
-                            <div>
-                                <p style="color:white;font-size:14px;font-weight:600;margin:0;">Tahan Napas — 7 detik ⏸️</p>
-                                <p style="color:#9ca3af;font-size:12px;margin:0;">Tahan napas tanpa ketegangan selama 7 hitungan. Biarkan tubuh menyerap oksigen.</p>
-                            </div>
-                        </div>
-                        <div style="background:#12100a;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:12px;">
-                            <span style="background:#22c55e;color:white;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">3</span>
-                            <div>
-                                <p style="color:white;font-size:14px;font-weight:600;margin:0;">Hembuskan — 8 detik 😮‍💨</p>
-                                <p style="color:#9ca3af;font-size:12px;margin:0;">Keluarkan napas perlahan melalui mulut selama 8 hitungan. Rasakan tubuh rileks.</p>
-                            </div>
-                        </div>
-                    </div>
-                    <p style="color:#6b7280;font-size:12px;margin:12px 0 0;text-align:center;">
-                        ✦ Ulangi 3–4 kali · Efek terasa setelah putaran pertama selesai
+                    <p style="color:#D1D5DB;font-size:15px;line-height:1.8;margin:0;">
+                        <b style="color:#f59e0b;">1.</b> Tarik napas — <b>4 detik</b><br>
+                        <b style="color:#f59e0b;">2.</b> Tahan napas — <b>7 detik</b><br>
+                        <b style="color:#f59e0b;">3.</b> Hembuskan perlahan — <b>8 detik</b><br>
+                        Ulangi 3–4 kali.
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.markdown("""
-                <div style="background:#0a1a0f;border:1px solid #22c55e;border-radius:14px;padding:18px;">
-                    <h4 style="color:#22c55e;margin-top:0;font-size:16px;">✅ Kondisi Wajah Segar</h4>
-                    <p style="color:#9ca3af;font-size:13px;line-height:1.7;margin:0 0 12px;">
-                        Tidak ada sinyal kelelahan signifikan yang terdeteksi dari wajah Anda saat ini.
-                        Ini pertanda baik — pertahankan kebiasaan yang sudah kamu jalani hari ini.
-                    </p>
-                    <div style="display:grid;gap:8px;">
-                        <div style="background:#0f1f12;border-radius:10px;padding:10px 14px;">
-                            <p style="color:#86efac;font-size:13px;margin:0;">💧 Pastikan tetap terhidrasi — minum air cukup sepanjang hari</p>
-                        </div>
-                        <div style="background:#0f1f12;border-radius:10px;padding:10px 14px;">
-                            <p style="color:#86efac;font-size:13px;margin:0;">⏱️ Ambil istirahat 5 menit setiap 45–60 menit aktivitas layar</p>
-                        </div>
-                        <div style="background:#0f1f12;border-radius:10px;padding:10px 14px;">
-                            <p style="color:#86efac;font-size:13px;margin:0;">🌿 Jaga keseimbangan antara screen time dan aktivitas di luar</p>
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.success("Kondisi wajah Anda terlihat segar! Pertahankan pola istirahat dan aktivitas digital yang seimbang hari ini.")
 
             # ── Simpan ke Journey ──
             st.markdown("---")
             face_fatigue_map = {"Rendah": 25, "Sedang": 55, "Tinggi": 80}
             face_fatigue_pct = face_fatigue_map.get(level, 50)
-
-            # ── Combined Score jika Daily Check sudah ada ──
-            face_data = {"level": level, "label": label, "fatigue_pct": face_fatigue_pct}
-            combined  = compute_combined_score(face_data, st.session_state.wellness_result)
-            if combined:
-                st.markdown(f"""
-                <div style="background:linear-gradient(135deg,#0f172a,#1e1b4b);
-                            border:1px solid rgba(99,102,241,0.4);border-radius:14px;
-                            padding:16px;margin-bottom:12px;">
-                    <p style="color:#a5b4fc;font-size:12px;font-weight:700;
-                              letter-spacing:1px;margin:0 0 6px;">🔗 COMBINED WELLNESS SCORE</p>
-                    <p style="color:white;font-size:22px;font-weight:800;margin:0 0 4px;">
-                        {combined['score']}% — {combined['status']}
-                    </p>
-                    <p style="color:#6b7280;font-size:12px;margin:0;">
-                        Face Check (30%) + Daily Check (70%) = Skor gabungan yang lebih akurat
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.info("💡 Lengkapi **Daily Check** untuk mendapatkan Combined Wellness Score yang lebih akurat.")
-
             if st.button("Simpan Hasil Face Check ke Journey"):
                 save_history({
                     "Date":         datetime.now().strftime("%d-%m-%Y %H:%M"),
@@ -1730,10 +1461,6 @@ elif menu == "Face Check":
                     "Screen Time":  "—", "Stress": "—",
                     "Sleep":        "—", "Exercise": "—",
                 })
-                # Simpan face_result ke file agar tidak hilang saat refresh
-                uname = st.session_state.user["username"]
-                save_face_result(uname, face_data)
-                st.session_state.face_result = face_data
                 st.success(f"✅ Hasil Face Check ({label}, Fatigue {level}) berhasil disimpan ke Journey!")
 
 
@@ -1819,17 +1546,6 @@ elif menu == "Daily Check":
         submitted = st.form_submit_button("Analisis Kelelahan")
 
     if submitted:
-        # ── 2. Validasi kontekstual input ──
-        history_df_val = pd.DataFrame(st.session_state.progress_history) if st.session_state.progress_history else pd.DataFrame()
-        input_warnings = validate_daily_input(
-            screen_time, sleep_hours, stress_level,
-            social_media, exercise, productivity, history_df_val
-        )
-        if input_warnings:
-            for w in input_warnings:
-                st.warning(w)
-            st.markdown("<p style='color:#9ca3af;font-size:13px;'>Data tetap diproses. Pastikan input sudah benar untuk hasil yang akurat.</p>", unsafe_allow_html=True)
-
         prog_bar = st.progress(0)
         status   = st.empty()
         status.info("Membaca data aktivitas Anda...")
@@ -1863,7 +1579,7 @@ elif menu == "Daily Check":
         risk_label, risk_desc = fatigue_label(fatigue_percent)
         recovery_score        = max(100 - fatigue_percent, 5)
 
-        wellness_data = {
+        st.session_state.wellness_result = {
             "fatigue_percent": fatigue_percent,
             "screen_time":     screen_time,
             "sleep_hours":     sleep_hours,
@@ -1877,11 +1593,7 @@ elif menu == "Daily Check":
             "q_energy":        q_energy,
             "q_digital":       q_digital,
         }
-        st.session_state.wellness_result = wellness_data
         st.session_state.recovery_checks = {}
-
-        # ── 3. Simpan wellness_result ke file agar tidak hilang saat refresh ──
-        save_wellness_result(st.session_state.user["username"], wellness_data)
 
         save_history({
             "Date":         now.strftime("%d-%m-%Y %H:%M"),
@@ -1909,26 +1621,6 @@ elif menu == "Daily Check":
         with mc4:
             cond = risk_label.split(" ", 1)[1] if " " in risk_label else risk_label
             st.metric("Risiko", cond)
-
-        # ── 1. Combined Score dengan Face Check ──
-        combined = compute_combined_score(st.session_state.face_result, wellness_data)
-        if combined:
-            st.markdown(f"""
-            <div style="background:linear-gradient(135deg,#0f172a,#1e1b4b);
-                        border:1px solid rgba(99,102,241,0.4);border-radius:14px;
-                        padding:16px;margin:12px 0;">
-                <p style="color:#a5b4fc;font-size:12px;font-weight:700;
-                          letter-spacing:1px;margin:0 0 6px;">🔗 COMBINED WELLNESS SCORE</p>
-                <p style="color:white;font-size:22px;font-weight:800;margin:0 0 4px;">
-                    {combined['score']}% — {combined['status']}
-                </p>
-                <p style="color:#6b7280;font-size:12px;margin:0;">
-                    Face Check (30%) + Daily Check (70%) = Skor gabungan yang lebih akurat
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.info("💡 Lengkapi **Face Check** terlebih dahulu untuk mendapatkan Combined Wellness Score.")
 
         st.caption("💡 Recovery Score adalah kebalikan dari Fatigue Risk — keduanya saling berkaitan sebagai satu indikator kesehatan mental.")
         st.progress(fatigue_percent)
