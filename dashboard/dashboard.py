@@ -2292,7 +2292,10 @@ elif menu == "Guide":
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("Semua yang perlu kamu tahu tentang kesehatan mental di era digital.")
+    st.markdown(
+        "Semua yang perlu kamu tahu tentang kesehatan mental di era digital — "
+        "dijelaskan dengan sederhana dan mudah dipahami."
+        )
     st.markdown("---")
 
     st.markdown("""
