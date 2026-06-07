@@ -10,3 +10,4 @@ keras==2.15.0
 pillow
 setuptools==69.5.1
 mediapipe==0.10.9
+bcrypt
