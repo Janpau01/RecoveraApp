@@ -1288,6 +1288,20 @@ if menu == "Beranda":
         """, unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:20px;'></div>", unsafe_allow_html=True)
+    
+    # ── Quote penutup ──
+    st.markdown("""
+    <div style="text-align:center;padding:28px 16px 8px;">
+        <p style="font-size:15px;color:#6B7280;font-style:italic;line-height:1.9;margin:0;">
+            "Recovera bukan untuk mendiagnosis — tapi untuk
+            <span style="color:#22c55e;font-style:italic;">menyadarkan.</span><br>
+            Karena langkah pertama menuju pemulihan adalah
+            <span style="color:#22c55e;font-weight:700;font-style:italic;">
+                mengenali bahwa kamu membutuhkannya.
+            </span>"
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     # ── CTA ──
     st.markdown("""
