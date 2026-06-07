@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import hashlib
+import secrets
 import joblib
 import numpy as np
 import pandas as pd
@@ -11,12 +12,6 @@ from datetime import datetime, timedelta
 from PIL import Image
 import io
 import csv
-
-# ─────────────────────────────────────────────
-# FIX 3: Import bcrypt for secure password hashing
-# Replace: import hashlib (still kept for migration path)
-# ─────────────────────────────────────────────
-import bcrypt
 
 # ─────────────────────────────────────────────
 # ENVIRONMENT
@@ -79,67 +74,51 @@ def init_db():
         c.execute("ALTER TABLE users ADD COLUMN onboarded INTEGER DEFAULT 0")
     except Exception:
         pass
+    # ── [FIX #3] Migrate: add salt column for PBKDF2 ──
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN salt TEXT DEFAULT NULL")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
-# ─────────────────────────────────────────────
-# FIX 3: bcrypt password hashing (replaces SHA-256)
-#
-# OLD CODE (vulnerable):
-#   def hash_password(password: str) -> str:
-#       return hashlib.sha256(password.encode()).hexdigest()
-#
-# WHY: SHA-256 without salt is vulnerable to rainbow table attacks.
-#   bcrypt automatically generates a unique salt per password and
-#   is intentionally slow (work factor), making brute-force infeasible.
-#
-# MIGRATION: Existing SHA-256 hashes in the DB are detected by the
-#   absence of the "$2b$" bcrypt prefix, and users are prompted to
-#   reset their password (or re-hash on next login if you prefer).
-# ─────────────────────────────────────────────
 
-def hash_password(password: str) -> str:
-    """Hash a password with bcrypt (auto-salted, work factor 12)."""
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+# ── [FIX #3] Password hashing dengan PBKDF2 + salt ──────────────────────────
+
+def hash_password_pbkdf2(password: str, salt: str) -> str:
+    """Hash password menggunakan PBKDF2-HMAC-SHA256 dengan salt unik per user."""
+    dk = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        iterations=260_000,  # OWASP 2023 recommendation
+    )
+    return dk.hex()
 
 
-def verify_password(password: str, stored_hash: str) -> bool:
-    """
-    Verify a password against a stored hash.
-    Supports both legacy SHA-256 hashes and new bcrypt hashes
-    to allow a graceful migration path for existing users.
-    """
-    if stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$"):
-        # Modern bcrypt hash
-        return bcrypt.checkpw(password.encode("utf-8"), stored_hash.encode("utf-8"))
-    else:
-        # Legacy SHA-256 hash — still verify but flag for re-hash
-        return hashlib.sha256(password.encode()).hexdigest() == stored_hash
-
-
-def rehash_if_legacy(username: str, password: str, stored_hash: str):
-    """
-    If a user logs in with a legacy SHA-256 hash, transparently upgrade
-    their stored hash to bcrypt on the spot.
-    """
-    if not (stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$")):
-        new_hash = hash_password(password)
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("UPDATE users SET password_hash=? WHERE username=?", (new_hash, username))
-        conn.commit()
-        conn.close()
+def hash_password_legacy(password: str) -> str:
+    """SHA-256 polos — hanya untuk backward-compat login user lama."""
+    return hashlib.sha256(password.encode()).hexdigest()
 
 
 def register_user(username, email, password, full_name=""):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     try:
+        # Generate salt unik untuk setiap user baru
+        salt = secrets.token_hex(32)
+        pw_hash = hash_password_pbkdf2(password, salt)
         c.execute(
-            "INSERT INTO users (username, email, password_hash, created_at, full_name, onboarded) VALUES (?,?,?,?,?,0)",
-            (username.strip().lower(), email.strip().lower(),
-             hash_password(password),  # FIX 3: now uses bcrypt
-             datetime.now().strftime("%d-%m-%Y %H:%M"), full_name.strip())
+            "INSERT INTO users (username, email, password_hash, created_at, full_name, onboarded, salt) "
+            "VALUES (?,?,?,?,?,0,?)",
+            (
+                username.strip().lower(),
+                email.strip().lower(),
+                pw_hash,
+                datetime.now().strftime("%d-%m-%Y %H:%M"),
+                full_name.strip(),
+                salt,
+            ),
         )
         conn.commit()
         return True, "Registrasi berhasil!"
@@ -157,18 +136,50 @@ def login_user(username_or_email, password):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     val = username_or_email.strip().lower()
-    # FIX 3: Fetch hash separately so we can use bcrypt.checkpw
+
+    # Ambil data user terlebih dahulu (tanpa langsung filter password)
     c.execute(
-        "SELECT id, username, full_name, onboarded, password_hash FROM users WHERE (username=? OR email=?)",
-        (val, val)
+        "SELECT id, username, full_name, onboarded, password_hash, salt "
+        "FROM users WHERE username=? OR email=?",
+        (val, val),
     )
     row = c.fetchone()
+
+    if not row:
+        conn.close()
+        return False, None
+
+    user_id, username, full_name, onboarded, stored_hash, salt = row
+
+    # ── Verifikasi password ──────────────────────────────────────────────────
+    authenticated = False
+
+    if salt:
+        # User baru — verifikasi dengan PBKDF2
+        if hash_password_pbkdf2(password, salt) == stored_hash:
+            authenticated = True
+    else:
+        # User lama — verifikasi dengan SHA-256 lama (backward compat)
+        if hash_password_legacy(password) == stored_hash:
+            authenticated = True
+            # ── [FIX #3] Auto-upgrade hash ke PBKDF2 setelah login berhasil ──
+            new_salt   = secrets.token_hex(32)
+            new_hash   = hash_password_pbkdf2(password, new_salt)
+            c.execute(
+                "UPDATE users SET password_hash=?, salt=? WHERE id=?",
+                (new_hash, new_salt, user_id),
+            )
+            conn.commit()
+
     conn.close()
 
-    if row and verify_password(password, row[4]):
-        # Transparently upgrade legacy SHA-256 → bcrypt on login
-        rehash_if_legacy(row[1], password, row[4])
-        return True, {"id": row[0], "username": row[1], "full_name": row[2], "onboarded": row[3]}
+    if authenticated:
+        return True, {
+            "id":         user_id,
+            "username":   username,
+            "full_name":  full_name,
+            "onboarded":  onboarded,
+        }
     return False, None
 
 
@@ -178,6 +189,7 @@ def mark_onboarded(username):
     c.execute("UPDATE users SET onboarded=1 WHERE username=?", (username,))
     conn.commit()
     conn.close()
+
 
 init_db()
 
@@ -383,6 +395,29 @@ input[type="number"] {
     line-height: 1.6;
 }
 
+/* ── [FIX #8] Overwrite confirm box ── */
+.overwrite-box {
+    background: rgba(245,158,11,0.10);
+    border: 2px solid rgba(245,158,11,0.5);
+    border-radius: 16px;
+    padding: 20px 22px;
+    margin: 16px 0;
+}
+.overwrite-box h4 {
+    color: #fcd34d;
+    font-size: 15px;
+    margin: 0 0 10px;
+}
+.overwrite-box .prev-data {
+    background: #111827;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: #9ca3af;
+    line-height: 1.8;
+    margin-bottom: 12px;
+}
+
 @media (max-width: 768px) {
     [data-testid="column"] {
         width: 100% !important;
@@ -437,20 +472,18 @@ def get_user_files(username: str):
 # ─────────────────────────────────────────────
 
 defaults = {
-    "wellness_result":           None,
-    "menu":                      "Beranda",
-    "recovery_checks":           {},
-    "confirm_delete":            False,
-    "face_result":               None,
-    # FIX 1: Track the calendar date face_result was captured
-    "face_result_date":          None,
-    "logged_in":                 False,
-    "user":                      None,
-    "auth_screen":               "welcome",
-    "show_onboarding":           False,
-    # FIX 2: Flag to ask user before overwriting wellness result
-    "pending_wellness_submit":   False,
-    "pending_wellness_data":     None,
+    "wellness_result":       None,
+    "menu":                  "Beranda",
+    "recovery_checks":       {},
+    "confirm_delete":        False,
+    "face_result":           None,
+    "logged_in":             False,
+    "user":                  None,
+    "auth_screen":           "welcome",
+    "show_onboarding":       False,
+    # [FIX #8] flag konfirmasi overwrite
+    "show_overwrite_confirm": False,
+    "pending_daily_data":    None,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -475,28 +508,6 @@ if "progress_history" not in st.session_state:
     else:
         st.session_state.progress_history = []
         st.session_state.mood_history     = []
-
-# ─────────────────────────────────────────────
-# FIX 1: Stale Face Check Detection
-#
-# OLD BEHAVIOUR: face_result persisted indefinitely in session state,
-#   so a Face Check from a previous day would silently inflate the
-#   current day's fatigue score.
-#
-# FIX: Store face_result_date alongside face_result. On every page
-#   load, if the stored date is not today's date, clear face_result
-#   so the user starts fresh.
-# ─────────────────────────────────────────────
-
-def clear_stale_face_result():
-    """Invalidate face_result if it was captured on a different calendar day."""
-    stored_date = st.session_state.get("face_result_date")
-    today_str   = datetime.now().strftime("%Y-%m-%d")
-    if stored_date is not None and stored_date != today_str:
-        st.session_state.face_result      = None
-        st.session_state.face_result_date = None
-
-clear_stale_face_result()
 
 # ─────────────────────────────────────────────
 # CACHED LOADERS
@@ -632,34 +643,38 @@ def require_wellness_check():
         st.stop()
 
 
-# ─────────────────────────────────────────────
-# FIX 2: Wellness overwrite detection helper
-#
-# OLD BEHAVIOUR: Submitting Daily Check twice in a day silently
-#   replaced wellness_result without any warning.
-#
-# FIX: Check whether wellness_result already contains a record from
-#   today. If so, surface a confirmation dialog before overwriting.
-# ─────────────────────────────────────────────
+# ── [FIX #6] Cek apakah face_result masih valid untuk hari ini ───────────────
 
-def wellness_recorded_today() -> bool:
-    """Return True if a wellness result was already saved today."""
-    existing = st.session_state.get("wellness_result")
-    if existing is None:
+def is_face_result_today() -> bool:
+    """Return True jika face_result ada DAN di-capture hari ini."""
+    fr = st.session_state.get("face_result")
+    if not fr:
         return False
-    # Check the most recent entry in the CSV for today's date
+    ts = fr.get("timestamp")
+    if not ts:
+        return False
     try:
-        _, _, WELLNESS_FILE = get_user_files(st.session_state.user["username"])
-        if not os.path.exists(WELLNESS_FILE):
-            return False
-        wdf = pd.read_csv(WELLNESS_FILE)
-        if wdf.empty or "timestamp" not in wdf.columns:
-            # No timestamp column — fall back to session state flag only
-            return st.session_state.get("wellness_done_today", False)
-        last_ts = pd.to_datetime(wdf["timestamp"].iloc[-1], errors="coerce")
-        return last_ts.date() == datetime.now().date() if last_ts is not None else False
+        captured_date = datetime.strptime(ts, "%Y-%m-%d").date()
+        return captured_date == datetime.now().date()
     except Exception:
-        return st.session_state.get("wellness_done_today", False)
+        return False
+
+
+# ── [FIX #8] Cek apakah wellness_result sudah ada untuk hari ini ─────────────
+
+def has_wellness_today() -> bool:
+    """Return True jika sudah ada wellness_result dari hari ini."""
+    wr = st.session_state.get("wellness_result")
+    if not wr:
+        return False
+    ts = wr.get("timestamp")
+    if not ts:
+        return False
+    try:
+        saved_date = datetime.strptime(ts, "%Y-%m-%d").date()
+        return saved_date == datetime.now().date()
+    except Exception:
+        return False
 
 
 # ─────────────────────────────────────────────
@@ -667,6 +682,7 @@ def wellness_recorded_today() -> bool:
 # ─────────────────────────────────────────────
 
 def get_yesterday_data():
+    """Ambil data hari sebelumnya dari history."""
     h = st.session_state.progress_history
     if not h:
         return None
@@ -683,9 +699,14 @@ def get_yesterday_data():
 
 
 def validate_daily_input(screen_time, sleep_hours, stress_level, social_media, exercise, productivity):
+    """
+    Validasi kontekstual input Daily Check.
+    Returns list of (level, message) — level: 'extreme' | 'warning'
+    """
     warnings = []
     yesterday = get_yesterday_data()
 
+    # --- Batas Ekstrem ---
     if screen_time > 20:
         warnings.append(("extreme", f"⛔ Screen time {screen_time} jam/hari sangat tidak realistis (melebihi waktu terjaga normal). Periksa kembali input Anda."))
     if sleep_hours < 1 and sleep_hours > 0:
@@ -697,6 +718,7 @@ def validate_daily_input(screen_time, sleep_hours, stress_level, social_media, e
     if exercise > 240:
         warnings.append(("extreme", f"⛔ Durasi olahraga {exercise} menit (>4 jam) sangat tidak umum. Periksa kembali."))
 
+    # --- Perbandingan dengan hari sebelumnya ---
     if yesterday:
         try:
             prev_screen = float(yesterday.get("Screen Time", 0) or 0)
@@ -809,11 +831,7 @@ def get_escalated_recovery_plan(challenges_by_cat, bad_streak):
             "🔴", "PERINGATAN: Kondisi kritis! Pertimbangkan Digital Sabbath — 1 hari penuh tanpa media sosial", "Hari ini"
         ))
 
-    if bad_streak >= 2:
-        level = "intensive" if bad_streak >= 4 else "medium"
-    else:
-        level = "normal"
-
+    level = "intensive" if bad_streak >= 4 else "medium"
     return escalated, level
 
 
@@ -1431,23 +1449,6 @@ elif menu == "Face Check":
     </div>
     """, unsafe_allow_html=True)
 
-    # FIX 1: Show banner if there's already a face result from today
-    if st.session_state.face_result is not None:
-        fr = st.session_state.face_result
-        fc_color = {"Rendah": "#22c55e", "Sedang": "#f59e0b", "Tinggi": "#ef4444"}.get(fr["level"], "#6b7280")
-        st.markdown(f"""
-        <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);
-                    border-radius:12px;padding:12px 16px;margin-bottom:14px;">
-            <p style="color:#86EFAC;font-size:13px;margin:0;line-height:1.7;">
-                📸 <b>Face Check hari ini sudah dilakukan</b> &nbsp;|&nbsp;
-                Hasil: <span style="color:{fc_color};font-weight:700;">{fr['label']}</span>
-                (EAR: {fr['ear']}, MAR: {fr['mar']}) &nbsp;|&nbsp;
-                Diambil: <b>{st.session_state.face_result_date or 'hari ini'}</b><br>
-                <span style="color:#9CA3AF;">Anda bisa melakukan ulang di bawah — hasil lama akan digantikan.</span>
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
     st.markdown("""
     <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.3);
                 border-radius:12px;padding:12px 16px;margin-bottom:14px;">
@@ -1458,6 +1459,30 @@ elif menu == "Face Check":
         </p>
     </div>
     """, unsafe_allow_html=True)
+
+    # ── [FIX #6] Tampilkan status face_result jika sudah ada hari ini ────────
+    if is_face_result_today():
+        fr_existing = st.session_state.face_result
+        fc_color_ex = {"Rendah": "#22c55e", "Sedang": "#f59e0b", "Tinggi": "#ef4444"}.get(
+            fr_existing["level"], "#6b7280")
+        st.markdown(f"""
+        <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);
+                    border-radius:12px;padding:12px 16px;margin-bottom:14px;">
+            <p style="color:#86EFAC;font-size:13px;margin:0 0 6px;font-weight:700;">
+                ✅ Face Check sudah dilakukan hari ini
+            </p>
+            <p style="color:#9CA3AF;font-size:13px;margin:0;line-height:1.7;">
+                Level: <span style="color:{fc_color_ex};font-weight:700;">
+                    {fr_existing['label']}
+                </span>
+                &nbsp;|&nbsp; EAR: {fr_existing['ear']}
+                &nbsp;|&nbsp; MAR: {fr_existing['mar']}
+                &nbsp;|&nbsp; Penyesuaian: <b>+{fr_existing['face_bonus']}%</b>
+                <br>
+                Kamu bisa scan ulang di bawah jika ingin memperbarui.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("Arahkan wajah Anda ke kamera untuk mendeteksi indikasi kelelahan digital berdasarkan kondisi mata dan ekspresi wajah.")
 
@@ -1535,6 +1560,7 @@ elif menu == "Face Check":
             </div>
             """, unsafe_allow_html=True)
 
+            # Expression tag re-detection
             results2 = face_mesh.process(img_array)
             expression_tags = []
             if results2.multi_face_landmarks:
@@ -1654,7 +1680,7 @@ elif menu == "Face Check":
             else:
                 st.success("Kondisi wajah Anda terlihat segar! Pertahankan pola istirahat dan aktivitas digital yang seimbang.")
 
-            # FIX 1: Save face_result WITH today's date stamp
+            # ── [FIX #6] Simpan face_result dengan timestamp hari ini ────────
             face_fatigue_map = {"Rendah": 0, "Sedang": 8, "Tinggi": 15}
             face_bonus       = face_fatigue_map.get(level, 0)
             st.session_state.face_result = {
@@ -1664,9 +1690,8 @@ elif menu == "Face Check":
                 "face_bonus":  face_bonus,
                 "ear":         round(ear, 3),
                 "mar":         round(mar, 3),
+                "timestamp":   datetime.now().strftime("%Y-%m-%d"),  # ← FIX #6
             }
-            # Store the capture date so stale-detection works across days
-            st.session_state.face_result_date = datetime.now().strftime("%Y-%m-%d")
 
             st.markdown("---")
             face_fatigue_pct = {"Rendah": 25, "Sedang": 55, "Tinggi": 80}.get(level, 50)
@@ -1713,9 +1738,11 @@ elif menu == "Daily Check":
     </div>
     """, unsafe_allow_html=True)
 
+    # ── [FIX #6] Tampilkan status integrasi Face Check — hanya jika hari ini ──
     face_res = st.session_state.get("face_result")
-    if face_res:
-        fc_color = {"Rendah": "#22c55e", "Sedang": "#f59e0b", "Tinggi": "#ef4444"}.get(face_res["level"], "#6b7280")
+    if is_face_result_today():
+        fc_color = {"Rendah": "#22c55e", "Sedang": "#f59e0b", "Tinggi": "#ef4444"}.get(
+            face_res["level"], "#6b7280")
         st.markdown(f"""
         <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);
                     border-radius:12px;padding:12px 16px;margin-bottom:14px;">
@@ -1727,16 +1754,44 @@ elif menu == "Daily Check":
             </p>
         </div>
         """, unsafe_allow_html=True)
+        # Gunakan face_res yang valid hari ini
+        active_face_res = face_res
     else:
-        st.markdown("""
-        <div style="background:rgba(107,114,128,0.08);border:1px solid rgba(107,114,128,0.25);
-                    border-radius:12px;padding:12px 16px;margin-bottom:14px;">
-            <p style="color:#9CA3AF;font-size:13px;margin:0;line-height:1.7;">
-                💡 Belum ada Face Check hari ini. Lakukan <b>Face Check</b> terlebih dahulu
-                untuk hasil yang lebih akurat (opsional).
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        # [FIX #6] face_result ada tapi dari hari kemarin — beri tahu user
+        if face_res is not None:
+            st.markdown("""
+            <div style="background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.4);
+                        border-radius:12px;padding:12px 16px;margin-bottom:14px;">
+                <p style="color:#fcd34d;font-size:13px;margin:0 0 8px;line-height:1.7;">
+                    ⏰ <b>Face Check dari kemarin sudah kedaluwarsa.</b>
+                    Hasil Face Check hanya berlaku untuk hari yang sama.
+                </p>
+                <p style="color:#9CA3AF;font-size:13px;margin:0;">
+                    Lakukan Face Check baru hari ini untuk penyesuaian skor, atau lanjutkan tanpa Face Check.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            ow1, ow2 = st.columns(2)
+            with ow1:
+                if st.button("📸 Lakukan Face Check Sekarang", use_container_width=True):
+                    st.session_state.menu = "Face Check"
+                    st.rerun()
+            with ow2:
+                if st.button("➡️ Lanjut Tanpa Face Check", use_container_width=True, key="skip_face"):
+                    # Reset face_result yang sudah basi
+                    st.session_state.face_result = None
+                    st.rerun()
+        else:
+            st.markdown("""
+            <div style="background:rgba(107,114,128,0.08);border:1px solid rgba(107,114,128,0.25);
+                        border-radius:12px;padding:12px 16px;margin-bottom:14px;">
+                <p style="color:#9CA3AF;font-size:13px;margin:0;line-height:1.7;">
+                    💡 Belum ada Face Check hari ini. Lakukan <b>Face Check</b> terlebih dahulu
+                    untuk hasil yang lebih akurat (opsional).
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        active_face_res = None
 
     st.markdown("""
     <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);
@@ -1748,46 +1803,6 @@ elif menu == "Daily Check":
     </div>
     """, unsafe_allow_html=True)
 
-    # ─────────────────────────────────────────────
-    # FIX 2: Overwrite confirmation dialog
-    #
-    # OLD BEHAVIOUR: Submitting the form a second time silently
-    #   overwrote the day's wellness_result with no warning.
-    #
-    # FIX: When pending_wellness_submit is True (set after form
-    #   submit when today's data already exists), show a confirmation
-    #   dialog BEFORE committing the new result. The pending data is
-    #   held in pending_wellness_data so no re-calculation is needed.
-    # ─────────────────────────────────────────────
-
-    if st.session_state.get("pending_wellness_submit", False):
-        prev = st.session_state.wellness_result
-        prev_fatigue = prev.get("fatigue_percent", "—") if prev else "—"
-        st.warning(
-            f"⚠️ **Daily Check sudah pernah dilakukan hari ini** (Fatigue {prev_fatigue}%). "
-            "Apakah Anda ingin menimpa hasil sebelumnya dengan data baru?"
-        )
-        ow_col1, ow_col2 = st.columns(2)
-        with ow_col1:
-            if st.button("✅ Ya, Timpa Data Lama", use_container_width=True):
-                pending = st.session_state.pending_wellness_data
-                st.session_state.wellness_result         = pending["result_dict"]
-                st.session_state.recovery_checks         = {}
-                st.session_state.wellness_done_today     = True
-                st.session_state.pending_wellness_submit = False
-                st.session_state.pending_wellness_data   = None
-                save_wellness_result(pending["result_dict"])
-                save_history(pending["history_entry"])
-                st.success("✅ Data berhasil diperbarui!")
-                st.rerun()
-        with ow_col2:
-            if st.button("❌ Batalkan, Simpan Data Lama", use_container_width=True):
-                st.session_state.pending_wellness_submit = False
-                st.session_state.pending_wellness_data   = None
-                st.info("Data lama dipertahankan.")
-                st.rerun()
-        st.stop()
-
     now = datetime.now()
     st.markdown(
         f"<div style='background:#111827;border:1px solid #1f2937;border-radius:12px;"
@@ -1796,6 +1811,57 @@ elif menu == "Daily Check":
         f"</div>",
         unsafe_allow_html=True,
     )
+
+    # ── [FIX #8] Tampilkan konfirmasi overwrite jika sudah ada data hari ini ──
+    if st.session_state.get("show_overwrite_confirm") and st.session_state.get("pending_daily_data"):
+        pending = st.session_state.pending_daily_data
+        prev    = st.session_state.wellness_result
+
+        st.markdown(f"""
+        <div class="overwrite-box">
+            <h4>⚠️ Kamu sudah melakukan Daily Check hari ini!</h4>
+            <p style="color:#D1D5DB;font-size:13px;margin:0 0 10px;">
+                Apakah kamu ingin menimpa data lama dengan yang baru?
+            </p>
+            <div class="prev-data">
+                <b style="color:#fcd34d;">Data sebelumnya:</b><br>
+                Fatigue Risk: {prev.get('fatigue_percent','—')}% &nbsp;|&nbsp;
+                Screen Time: {prev.get('screen_time','—')} jam &nbsp;|&nbsp;
+                Tidur: {prev.get('sleep_hours','—')} jam &nbsp;|&nbsp;
+                Stres: {prev.get('stress_level','—')}<br>
+                Mood: {prev.get('q_mood','—')} &nbsp;|&nbsp; Energi: {prev.get('q_energy','—')}
+            </div>
+            <div class="prev-data" style="border-color:#22c55e44;">
+                <b style="color:#86EFAC;">Data baru (akan disimpan):</b><br>
+                Screen Time: {pending.get('screen_time','—')} jam &nbsp;|&nbsp;
+                Tidur: {pending.get('sleep_hours','—')} jam &nbsp;|&nbsp;
+                Stres: {pending.get('stress_level','—')}<br>
+                Mood: {pending.get('q_mood','—')} &nbsp;|&nbsp; Energi: {pending.get('q_energy','—')}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        ow_col1, ow_col2 = st.columns(2)
+        with ow_col1:
+            if st.button("✅ Ya, Timpa Data Lama", use_container_width=True):
+                # Lanjutkan proses simpan dengan pending_daily_data
+                st.session_state.show_overwrite_confirm = False
+                _proceed_save = True
+                st.rerun()
+        with ow_col2:
+            if st.button("❌ Batal", use_container_width=True, key="cancel_overwrite"):
+                st.session_state.show_overwrite_confirm = False
+                st.session_state.pending_daily_data     = None
+                st.rerun()
+        st.stop()
+
+    # ── [FIX #8] Lanjutkan proses simpan setelah konfirmasi overwrite ─────────
+    _proceed_save = False
+    if (
+        not st.session_state.get("show_overwrite_confirm")
+        and st.session_state.get("pending_daily_data") is not None
+    ):
+        _proceed_save = True
 
     with st.form("fatigue_form"):
         col1, col2 = st.columns(2)
@@ -1808,7 +1874,7 @@ elif menu == "Daily Check":
                 min_value=1, max_value=10, value=5, step=1)
         with col2:
             social_media = st.number_input("Penggunaan Media Sosial (jam/hari)",
-                min_value=0.0, max_value=15.0, value=4.0, step=0.5)
+                min_value=0.0, max_value=24.0, value=4.0, step=0.5)
             productivity = st.number_input("Produktivitas Hari Ini (skala 1–100)",
                 min_value=1, max_value=100, value=70, step=5)
             exercise     = st.number_input("Durasi Olahraga (menit)",
@@ -1843,17 +1909,68 @@ elif menu == "Daily Check":
             st.error("⛔ Terdapat data yang tidak realistis. Periksa kembali input Anda sebelum melanjutkan.")
             st.stop()
 
+        # Siapkan data yang akan diproses
+        _form_data = {
+            "screen_time":  screen_time,
+            "sleep_hours":  sleep_hours,
+            "stress_level": stress_level,
+            "social_media": social_media,
+            "productivity": productivity,
+            "exercise":     exercise,
+            "q_focus":      q_focus,
+            "q_mood":       q_mood,
+            "q_energy":     q_energy,
+            "q_digital":    q_digital,
+        }
+
+        # ── [FIX #8] Cek apakah ada data hari ini sebelum menyimpan ──────────
+        if has_wellness_today() and not _proceed_save:
+            st.session_state.pending_daily_data    = _form_data
+            st.session_state.show_overwrite_confirm = True
+            st.rerun()
+        else:
+            # Lanjutkan langsung (tidak ada data hari ini / sudah dikonfirmasi)
+            st.session_state.pending_daily_data = None
+            _proceed_save = True
+
+    # ── Proses analisis & simpan ──────────────────────────────────────────────
+    if _proceed_save and st.session_state.get("pending_daily_data") is None and submitted:
+        # Data sudah langsung di-submit (bukan dari pending)
+        pass
+
+    # Ambil data untuk diproses — bisa dari form langsung atau pending yang dikonfirmasi
+    _data_to_process = None
+    if _proceed_save:
+        if st.session_state.get("pending_daily_data"):
+            _data_to_process = st.session_state.pending_daily_data
+            st.session_state.pending_daily_data = None
+        elif submitted and not has_wellness_today():
+            _data_to_process = {
+                "screen_time":  screen_time,
+                "sleep_hours":  sleep_hours,
+                "stress_level": stress_level,
+                "social_media": social_media,
+                "productivity": productivity,
+                "exercise":     exercise,
+                "q_focus":      q_focus,
+                "q_mood":       q_mood,
+                "q_energy":     q_energy,
+                "q_digital":    q_digital,
+            }
+
+    if _data_to_process:
+        d = _data_to_process
         prog_bar = st.progress(0)
         status   = st.empty()
         status.info("Membaca data aktivitas Anda...")
         prog_bar.progress(25)
 
         input_data = pd.DataFrame([{
-            "screen_time":       screen_time,
-            "sleep_hours":       sleep_hours,
-            "stress_level":      stress_level,
+            "screen_time":       d["screen_time"],
+            "sleep_hours":       d["sleep_hours"],
+            "stress_level":      d["stress_level"],
             "digital_balance":   50,
-            "physical_activity": exercise,
+            "physical_activity": d["exercise"],
             "work_hours":        8,
         }])
 
@@ -1861,17 +1978,18 @@ elif menu == "Daily Check":
         prog_bar.progress(60)
 
         prediction      = model.predict(input_data)[0]
-        fatigue_percent = compute_fatigue_percent(screen_time, sleep_hours, stress_level)
+        fatigue_percent = compute_fatigue_percent(d["screen_time"], d["sleep_hours"], d["stress_level"])
 
         qual_score = 0
-        if q_focus   in ["Ya, cukup sulit", "Ya, sangat sulit"]: qual_score += 5
-        if q_mood    in ["Kurang baik", "Sangat buruk"]:          qual_score += 5
-        if q_energy  in ["Mudah lelah", "Sangat lelah"]:          qual_score += 5
-        if q_digital in ["Cukup sering", "Terus-menerus"]:        qual_score += 5
+        if d["q_focus"]   in ["Ya, cukup sulit", "Ya, sangat sulit"]: qual_score += 5
+        if d["q_mood"]    in ["Kurang baik", "Sangat buruk"]:          qual_score += 5
+        if d["q_energy"]  in ["Mudah lelah", "Sangat lelah"]:          qual_score += 5
+        if d["q_digital"] in ["Cukup sering", "Terus-menerus"]:        qual_score += 5
 
+        # [FIX #6] Hanya gunakan face_bonus jika face_result valid hari ini
         face_bonus = 0
-        if face_res:
-            face_bonus = face_res.get("face_bonus", 0)
+        if is_face_result_today():
+            face_bonus = st.session_state.face_result.get("face_bonus", 0)
 
         fatigue_percent = min(fatigue_percent + qual_score + face_bonus, 95)
 
@@ -1883,49 +2001,36 @@ elif menu == "Daily Check":
 
         result_dict = {
             "fatigue_percent": fatigue_percent,
-            "screen_time":     screen_time,
-            "sleep_hours":     sleep_hours,
-            "stress_level":    stress_level,
-            "exercise":        exercise,
-            "social_media":    social_media,
-            "productivity":    productivity,
+            "screen_time":     d["screen_time"],
+            "sleep_hours":     d["sleep_hours"],
+            "stress_level":    d["stress_level"],
+            "exercise":        d["exercise"],
+            "social_media":    d["social_media"],
+            "productivity":    d["productivity"],
             "prediction":      prediction,
-            "q_focus":         q_focus,
-            "q_mood":          q_mood,
-            "q_energy":        q_energy,
-            "q_digital":       q_digital,
-            "face_level":      face_res["level"] if face_res else "—",
+            "q_focus":         d["q_focus"],
+            "q_mood":          d["q_mood"],
+            "q_energy":        d["q_energy"],
+            "q_digital":       d["q_digital"],
+            "face_level":      st.session_state.face_result["level"] if is_face_result_today() else "—",
             "face_bonus":      face_bonus,
-            "timestamp":       now.strftime("%Y-%m-%d %H:%M"),   # FIX 2: store timestamp for overwrite detection
+            "timestamp":       datetime.now().strftime("%Y-%m-%d"),  # ← FIX #8
         }
+        st.session_state.wellness_result   = result_dict
+        st.session_state.recovery_checks   = {}
 
-        history_entry = {
+        save_wellness_result(result_dict)
+        save_history({
             "Date":         now.strftime("%d-%m-%Y %H:%M"),
             "Fatigue Risk": fatigue_percent,
-            "Screen Time":  screen_time,
-            "Stress":       stress_level,
-            "Sleep":        sleep_hours,
-            "Exercise":     exercise,
-        }
+            "Screen Time":  d["screen_time"],
+            "Stress":       d["stress_level"],
+            "Sleep":        d["sleep_hours"],
+            "Exercise":     d["exercise"],
+        })
 
         prog_bar.progress(100)
         status.success("✅ Analisis selesai!")
-
-        # FIX 2: If data already exists for today, show confirm dialog instead of overwriting
-        if wellness_recorded_today():
-            st.session_state.pending_wellness_submit = True
-            st.session_state.pending_wellness_data   = {
-                "result_dict":   result_dict,
-                "history_entry": history_entry,
-            }
-            st.rerun()
-        else:
-            # First submission today — save normally
-            st.session_state.wellness_result     = result_dict
-            st.session_state.recovery_checks     = {}
-            st.session_state.wellness_done_today = True
-            save_wellness_result(result_dict)
-            save_history(history_entry)
 
         st.subheader("Kondisi Digital Wellness Anda")
         mc1, mc2 = st.columns(2)
@@ -1940,8 +2045,8 @@ elif menu == "Daily Check":
             cond = risk_label.split(" ", 1)[1] if " " in risk_label else risk_label
             st.metric("Risiko", cond)
 
-        if face_res and face_bonus > 0:
-            st.info(f"📸 Face Check ({face_res['label']}) berkontribusi +{face_bonus}% pada skor fatigue final.")
+        if is_face_result_today() and face_bonus > 0:
+            st.info(f"📸 Face Check ({st.session_state.face_result['label']}) berkontribusi +{face_bonus}% pada skor fatigue final.")
 
         st.caption("💡 Recovery Score adalah kebalikan dari Fatigue Risk.")
         st.progress(fatigue_percent)
@@ -1950,7 +2055,7 @@ elif menu == "Daily Check":
                         use_container_width=True, config=PLOTLY_CFG)
 
         st.markdown("**Ringkasan Kualitatif:**")
-        badges = [(q_focus,"#6366f1"),(q_mood,"#ec4899"),(q_energy,"#f59e0b"),(q_digital,"#ef4444")]
+        badges = [(d["q_focus"],"#6366f1"),(d["q_mood"],"#ec4899"),(d["q_energy"],"#f59e0b"),(d["q_digital"],"#ef4444")]
         badge_html = "".join(
             f"<span class='qual-badge' style='background:{c}22;border:1px solid {c};color:{c};'>{t}</span>"
             for t, c in badges
@@ -1971,11 +2076,11 @@ elif menu == "Daily Check":
         st.markdown("---")
         st.header("Rekomendasi Aktivitas Recovery")
         recs = []
-        if screen_time  > 8:  recs += ["Membaca buku fisik 20–30 menit.", "Jalan santai sore tanpa gadget."]
-        if stress_level > 7:  recs += ["Meditasi atau latihan pernapasan mindfulness.", "Tulis catatan harian."]
-        if sleep_hours  < 6:  recs += ["Tidur lebih awal, hindari gadget sebelum tidur."]
-        if exercise     < 20: recs += ["Jogging ringan 15–20 menit.", "Stretching di rumah."]
-        if productivity < 60: recs += ["Gunakan teknik Pomodoro.", "Kurangi distraksi digital saat kerja."]
+        if d["screen_time"]  > 8:  recs += ["Membaca buku fisik 20–30 menit.", "Jalan santai sore tanpa gadget."]
+        if d["stress_level"] > 7:  recs += ["Meditasi atau latihan pernapasan mindfulness.", "Tulis catatan harian."]
+        if d["sleep_hours"]  < 6:  recs += ["Tidur lebih awal, hindari gadget sebelum tidur."]
+        if d["exercise"]     < 20: recs += ["Jogging ringan 15–20 menit.", "Stretching di rumah."]
+        if d["productivity"] < 60: recs += ["Gunakan teknik Pomodoro.", "Kurangi distraksi digital saat kerja."]
 
         if not recs:
             st.success("Kondisi digital wellness Anda masih baik. Pertahankan keseimbangan aktivitas digital, fisik, dan istirahat.")
@@ -2259,7 +2364,7 @@ elif menu == "Journey":
             </div>
             """, unsafe_allow_html=True)
             if tomorrow_pred > 65:
-                st.warning(f"⚠️ Berdasarkan tren terkini, prediksi fatigue besok mencapai **{tomorrow_pred}%**. Pertimbangkan recovery intensif hari ini.")
+                st.warning(f"⚠️ Berdasarkan tren terkini, prediksi fatigue besok mencapai **{tomorrow_pred}%**.")
         else:
             st.info("Belum cukup data untuk prediksi.")
 
