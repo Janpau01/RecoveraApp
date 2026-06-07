@@ -2325,10 +2325,25 @@ elif menu == "Guide":
             Kenapa Scrolling Bikin Ketagihan?
         </p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
-            TikTok, Instagram Reels, dan YouTube Shorts dirancang seperti mesin slot.
-            Otak terus memproduksi <b style="color:#C084FC;">dopamin</b> karena tidak tahu
-            konten apa yang muncul selanjutnya.
+            TikTok, Instagram Reels, dan YouTube Shorts dirancang seperti mesin slot —
+            kamu tidak tahu konten apa yang akan muncul selanjutnya, dan itu membuat otak
+            terus memproduksi <b style="color:#C084FC;">dopamin</b> (zat kimia "kesenangan").
         </p>
+        <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
+            Masalahnya: semakin sering dopamin dipicu oleh hal mudah (scroll),
+            maka semakin sulit otak untuk menikmati aktivitas yang membutuhkan usaha — seperti belajar, membaca,
+            atau mengerjakan tugas.
+        </p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
+            <div style="background:#2D1B4E;border-radius:10px;padding:12px 14px;flex:1;min-width:140px;">
+                <p style="color:#A855F7;font-weight:700;font-size:13px;margin:0 0 4px;">Jangka Pendek</p>
+                <p style="color:#D1D5DB;font-size:13px;margin:0;">Senang sesaat, lalu bosan lagi dengan cepat</p>
+            </div>
+            <div style="background:#2D1B4E;border-radius:10px;padding:12px 14px;flex:1;min-width:140px;">
+                <p style="color:#EC4899;font-weight:700;font-size:13px;margin:0 0 4px;">Jangka Panjang</p>
+                <p style="color:#D1D5DB;font-size:13px;margin:0;">Fokus menurun, motivasi rendah, mudah cemas</p>
+            </div>
+        </div>
     </div>
 
     <div style="background:#0f1a1a;padding:22px 24px;border-radius:18px;
