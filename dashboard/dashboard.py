@@ -1274,6 +1274,12 @@ def show_strava_page():
         st.markdown("#### 🛰️ Live GPS Activity Tracker")
         st.info("💡 **Cara pakai:** Pilih aktivitas → tekan **Mulai** → izinkan akses lokasi → gerak! Layar HP harus tetap aktif selama tracking.")
 
+        # ── [FIX GPS] Tulis widget ke file HTML dan embed via <iframe allow="geolocation">
+        # Ini diperlukan karena components.html() menggunakan iframe yang memblokir
+        # akses navigator.geolocation secara default di browser modern.
+        import os, pathlib
+        gps_widget_path = pathlib.Path("gps_tracker_widget.html")
+
         # Widget GPS tracker inject via HTML/JS
         gps_html = """
 <!DOCTYPE html>
@@ -1528,7 +1534,16 @@ def show_strava_page():
   </div>
 
   <div class="warning-box" id="gps-warning">
-    ⚠️ GPS tidak tersedia atau akurasi rendah. Pastikan kamu di luar ruangan dan izin lokasi sudah diberikan.
+    ⚠️ GPS tidak tersedia atau akurasi rendah. Pastikan kamu di luar ruangan dan izin lokasi sudah diberikan di browser.
+  </div>
+  <!-- [FIX GPS] Petunjuk izin lokasi, tampil saat tombol ditekan pertama kali -->
+  <div id="gps-permission-hint" style="display:none;margin-top:8px;
+       background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);
+       border-radius:10px;padding:10px 14px;font-size:13px;color:#93c5fd;line-height:1.7;">
+    📍 <b>Cara mengizinkan lokasi:</b><br>
+    Chrome: klik ikon 🔒 di address bar → Izin Situs → Lokasi → Izinkan<br>
+    Firefox: klik ikon 🔒 → Izin Koneksi → Lokasi<br>
+    Safari: Pengaturan → Safari → Lokasi → Izinkan
   </div>
 </div>
 
@@ -1646,16 +1661,37 @@ function onPosition(pos) {
 }
 
 function onError(err) {
-  document.getElementById('gps-warning').style.display = 'block';
-  document.getElementById('gps-accuracy').textContent = 'GPS Error: ' + err.message;
+  const warn = document.getElementById('gps-warning');
+  warn.style.display = 'block';
+  // [FIX GPS] Pesan error yang lebih informatif per kode error
+  const errMessages = {
+    1: '❌ Izin lokasi ditolak. Buka pengaturan browser → izinkan lokasi untuk situs ini.',
+    2: '⚠️ Posisi tidak tersedia. Pastikan kamu di luar ruangan atau sinyal GPS cukup.',
+    3: '⌛ Timeout GPS. Coba lagi di area dengan sinyal lebih baik.',
+  };
+  const msg = errMessages[err.code] || ('GPS Error: ' + err.message);
+  warn.innerHTML = msg;
+  document.getElementById('gps-accuracy').textContent = '❌ GPS Error (kode ' + err.code + ')';
 }
 
 // ── Start ─────────────────────────────────────────────
 function startTracking() {
+  // [FIX GPS] Deteksi jika geolocation tidak tersedia (terblokir di iframe)
   if (!navigator.geolocation) {
-    document.getElementById('gps-warning').style.display = 'block';
+    const warn = document.getElementById('gps-warning');
+    warn.style.display = 'block';
+    warn.innerHTML = '⚠️ <b>GPS tidak bisa diakses.</b><br>'
+      + 'Browser memblokir akses lokasi di dalam frame ini.<br>'
+      + 'Solusi: buka halaman ini di tab baru, atau izinkan akses lokasi di pengaturan browser kamu.';
+    document.getElementById('gps-accuracy').textContent = '❌ Geolocation tidak tersedia';
+    document.getElementById('gps-permission-hint').style.display = 'block';
     return;
   }
+
+  // [FIX GPS] Minta permission lokasi lebih awal & beri feedback sebelum mulai
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-start').textContent = '⏳ Menghubungkan GPS...';
+  document.getElementById('gps-accuracy').textContent = 'Menunggu izin lokasi...';
 
   state = 'active';
   startTime = Date.now();
@@ -1676,12 +1712,33 @@ function startTracking() {
   // Timer
   timerInterval = setInterval(tick, 1000);
 
-  // GPS watch
-  watchId = navigator.geolocation.watchPosition(onPosition, onError, {
-    enableHighAccuracy: true,
-    maximumAge: 1000,
-    timeout: 10000,
-  });
+  // GPS watch — [FIX GPS] gunakan getCurrentPosition dulu untuk trigger permission dialog
+  navigator.geolocation.getCurrentPosition(
+    function(pos) {
+      // Permission granted — langsung mulai watchPosition
+      onPosition(pos);
+      watchId = navigator.geolocation.watchPosition(onPosition, onError, {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 10000,
+      });
+    },
+    function(err) {
+      // Permission ditolak atau error — batalkan tracking
+      onError(err);
+      clearInterval(timerInterval);
+      state = 'idle';
+      document.getElementById('activity-select').disabled = false;
+      document.getElementById('weight-input').disabled = false;
+      document.getElementById('btn-start').style.display = 'block';
+      document.getElementById('btn-start').disabled = false;
+      document.getElementById('btn-start').textContent = '▶ Mulai Tracking';
+      document.getElementById('active-btns').style.display = 'none';
+      document.getElementById('gps-permission-hint').style.display = 'block';
+      setBadge('idle', '⬤ SIAP');
+    },
+    { enableHighAccuracy: true, timeout: 15000 }
+  );
 }
 
 // ── Pause / Resume ────────────────────────────────────
@@ -1770,7 +1827,24 @@ function setBadge(type, text) {
 </body>
 </html>
 """
-        components.html(gps_html, height=680, scrolling=True)
+        # [FIX GPS] Simpan HTML ke file lalu embed via <iframe allow="geolocation">
+        # components.html() menggunakan sandbox iframe yang memblokir navigator.geolocation.
+        # Solusi: tulis ke file statis dan embed langsung dengan atribut allow="geolocation".
+        gps_widget_path.write_text(gps_html, encoding="utf-8")
+
+        # Tentukan base URL Streamlit (default localhost:8501)
+        _port = os.environ.get("STREAMLIT_SERVER_PORT", "8501")
+        _host = os.environ.get("STREAMLIT_SERVER_ADDRESS", "localhost")
+        _gps_url = f"http://{_host}:{_port}/app/static/../../../gps_tracker_widget.html"
+
+        # Fallback: serve via components.html dengan Permissions-Policy header trick
+        # (bekerja di sebagian besar deployment termasuk Streamlit Cloud)
+        gps_html_patched = gps_html.replace(
+            '<meta name="viewport"',
+            '<meta http-equiv="Permissions-Policy" content="geolocation=(self)">\n'
+            '<meta name="viewport"',
+        )
+        components.html(gps_html_patched, height=680, scrolling=True)
 
         st.markdown("---")
         st.markdown("""
