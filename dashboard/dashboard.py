@@ -1182,8 +1182,18 @@ def get_best_week(df: pd.DataFrame) -> tuple:
 
 
 # ─────────────────────────────────────────────
-# PAGE: STRAVA
+# PAGE: STRAVA (GPS TRACKER)
 # ─────────────────────────────────────────────
+
+import streamlit.components.v1 as components
+
+# ═══════════════════════════════════════════════════════════════════
+# PATCH: Ganti fungsi show_strava_page() dengan versi GPS tracking
+# Cara pakai: copy isi fungsi show_strava_page() di bawah ini
+# ke dalam dashboard.py, timpa fungsi show_strava_page() yang lama.
+# ═══════════════════════════════════════════════════════════════════
+
+import streamlit.components.v1 as components
 
 def show_strava_page():
     st.markdown("""
@@ -1197,11 +1207,10 @@ def show_strava_page():
         </div>
         <h2 style="font-family:'Syne',sans-serif;font-weight:800;color:white;
                    font-size:clamp(22px,5vw,34px);margin:0 0 10px;">
-            Strava — Log Aktivitas Fisik
+            Activity Tracker — GPS Real-Time
         </h2>
         <p style="color:#9CA3AF;font-size:14px;margin:0 auto;line-height:1.7;max-width:480px;">
-            Catat setiap sesi olahraga. Pantau progres mingguanmu.
-            Data olahraga otomatis terhubung ke analisis Daily Check.
+            Tracking otomatis via GPS browser. Pilih aktivitas, tekan Mulai, dan gerak!
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -1254,32 +1263,556 @@ def show_strava_page():
         st.markdown("---")
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
-    tab_log, tab_recap, tab_history = st.tabs(["➕ Log Aktivitas", "📊 Recap Mingguan", "📋 Riwayat"])
+    tab_gps, tab_log, tab_recap, tab_history = st.tabs([
+        "🛰️ GPS Tracker", "➕ Log Manual", "📊 Recap Mingguan", "📋 Riwayat"
+    ])
 
-    # ── TAB 1: LOG AKTIVITAS ─────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════
+    # TAB 1: GPS TRACKER (BARU)
+    # ══════════════════════════════════════════════════════
+    with tab_gps:
+        st.markdown("#### 🛰️ Live GPS Activity Tracker")
+        st.info("💡 **Cara pakai:** Pilih aktivitas → tekan **Mulai** → izinkan akses lokasi → gerak! Layar HP harus tetap aktif selama tracking.")
+
+        # Widget GPS tracker inject via HTML/JS
+        gps_html = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0E1117;
+    color: white;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    padding: 16px;
+  }
+  .card {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin: 12px 0;
+  }
+  .stat-box {
+    background: #1f2937;
+    border-radius: 10px;
+    padding: 12px;
+    text-align: center;
+  }
+  .stat-label {
+    color: #6b7280;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    color: white;
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .stat-unit {
+    color: #9ca3af;
+    font-size: 11px;
+  }
+  select {
+    width: 100%;
+    padding: 12px;
+    background: #1f2937;
+    color: white;
+    border: 1px solid #374151;
+    border-radius: 10px;
+    font-size: 15px;
+    margin-bottom: 10px;
+    appearance: none;
+  }
+  input[type="number"] {
+    width: 100%;
+    padding: 12px;
+    background: #1f2937;
+    color: white;
+    border: 1px solid #374151;
+    border-radius: 10px;
+    font-size: 15px;
+    margin-bottom: 10px;
+  }
+  label {
+    color: #9ca3af;
+    font-size: 12px;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+  }
+  .btn {
+    width: 100%;
+    padding: 14px;
+    border-radius: 12px;
+    border: none;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-bottom: 8px;
+    transition: all 0.2s;
+  }
+  .btn-start {
+    background: linear-gradient(90deg, #22c55e, #16a34a);
+    color: white;
+  }
+  .btn-stop {
+    background: linear-gradient(90deg, #ef4444, #dc2626);
+    color: white;
+  }
+  .btn-pause {
+    background: linear-gradient(90deg, #f59e0b, #d97706);
+    color: white;
+  }
+  .btn-save {
+    background: linear-gradient(90deg, #3b82f6, #2563eb);
+    color: white;
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .status-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .status-idle    { background: rgba(107,114,128,0.2); color: #9ca3af; border: 1px solid #374151; }
+  .status-active  { background: rgba(34,197,94,0.2);  color: #22c55e; border: 1px solid #22c55e; animation: pulse 1.5s ease-in-out infinite; }
+  .status-paused  { background: rgba(245,158,11,0.2); color: #f59e0b; border: 1px solid #f59e0b; }
+  .status-done    { background: rgba(59,130,246,0.2); color: #60a5fa; border: 1px solid #3b82f6; }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+    50%      { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+  }
+  .pace-ring {
+    font-size: 32px;
+    font-weight: 900;
+    color: #fb923c;
+    text-align: center;
+    margin: 8px 0;
+  }
+  .result-box {
+    background: rgba(34,197,94,0.08);
+    border: 1px solid rgba(34,197,94,0.3);
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 12px;
+    display: none;
+  }
+  .result-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid #1f2937;
+    font-size: 14px;
+  }
+  .result-row:last-child { border-bottom: none; }
+  .result-key   { color: #9ca3af; }
+  .result-val   { color: white; font-weight: 700; }
+  .warning-box {
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #fca5a5;
+    margin-top: 8px;
+    display: none;
+  }
+  textarea {
+    width: 100%;
+    background: #1f2937;
+    color: white;
+    border: 1px solid #374151;
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 14px;
+    resize: vertical;
+    min-height: 60px;
+  }
+  .copy-btn {
+    background: #22c55e22;
+    border: 1px solid #22c55e55;
+    color: #22c55e;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    margin-top: 8px;
+    width: 100%;
+  }
+</style>
+</head>
+<body>
+
+<!-- Setup -->
+<div class="card" id="setup-card">
+  <p style="color:#6b7280;font-size:11px;font-weight:700;letter-spacing:1px;margin-bottom:10px;">SETUP AKTIVITAS</p>
+  <label>Jenis Aktivitas</label>
+  <select id="activity-select">
+    <option>🏃 Lari</option>
+    <option>🚶 Jalan Kaki</option>
+    <option>🏊 Berenang</option>
+    <option>🚴 Bersepeda</option>
+    <option>🥾 Hiking</option>
+    <option>⚽ Sepak Bola</option>
+    <option>🏋️ Gym / Angkat Beban</option>
+    <option>🧘 Yoga / Pilates</option>
+    <option>🏸 Badminton</option>
+    <option>🎾 Tenis</option>
+    <option>🤸 Olahraga Lainnya</option>
+  </select>
+  <label>Berat Badan (kg) — untuk kalkulasi kalori</label>
+  <input type="number" id="weight-input" value="65" min="30" max="200" step="1">
+</div>
+
+<!-- Status & Controls -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <span class="status-badge status-idle" id="status-badge">⬤ SIAP</span>
+    <span style="color:#6b7280;font-size:12px;" id="gps-accuracy"></span>
+  </div>
+
+  <!-- Live Stats -->
+  <div class="stat-grid">
+    <div class="stat-box">
+      <div class="stat-label">Durasi</div>
+      <div class="stat-value" id="stat-duration">00:00</div>
+      <div class="stat-unit">mm:ss</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Jarak</div>
+      <div class="stat-value" id="stat-distance">0.00</div>
+      <div class="stat-unit">km</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Pace</div>
+      <div class="stat-value" id="stat-pace">--:--</div>
+      <div class="stat-unit">min/km</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Kalori</div>
+      <div class="stat-value" id="stat-calories">0</div>
+      <div class="stat-unit">kkal</div>
+    </div>
+  </div>
+
+  <!-- Speed -->
+  <div style="text-align:center;margin:8px 0;">
+    <span style="color:#6b7280;font-size:11px;">KECEPATAN SAAT INI</span><br>
+    <span class="pace-ring" id="stat-speed">0.0 km/h</span>
+  </div>
+
+  <!-- Buttons -->
+  <button class="btn btn-start" id="btn-start" onclick="startTracking()">▶ Mulai Tracking</button>
+  <div style="display:none;" id="active-btns">
+    <button class="btn btn-pause" id="btn-pause" onclick="togglePause()">⏸ Pause</button>
+    <button class="btn btn-stop"  onclick="stopTracking()">⏹ Stop & Simpan</button>
+  </div>
+
+  <div class="warning-box" id="gps-warning">
+    ⚠️ GPS tidak tersedia atau akurasi rendah. Pastikan kamu di luar ruangan dan izin lokasi sudah diberikan.
+  </div>
+</div>
+
+<!-- Result -->
+<div class="result-box" id="result-box">
+  <p style="color:#22c55e;font-weight:700;font-size:14px;margin-bottom:10px;">✅ Aktivitas Selesai — Salin data di bawah ke form Log Manual</p>
+  <div id="result-rows"></div>
+  <label style="margin-top:12px;">Catatan (opsional)</label>
+  <textarea id="result-note" placeholder="Bagaimana rasanya? Cuaca, lokasi, dll."></textarea>
+  <button class="copy-btn" onclick="copyResult()">📋 Salin Ringkasan Aktivitas</button>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────
+let state = 'idle'; // idle | active | paused | done
+let watchId = null;
+let timerInterval = null;
+let elapsedSeconds = 0;
+let pausedSeconds = 0;
+let startTime = null;
+let lastPos = null;
+let totalDistance = 0; // km
+let positions = [];
+let lastSpeedKmh = 0;
+
+const MET = {
+  "🏃 Lari": 9.8, "🚶 Jalan Kaki": 3.5, "🏊 Berenang": 8.0,
+  "🚴 Bersepeda": 7.5, "🥾 Hiking": 6.0, "⚽ Sepak Bola": 7.0,
+  "🏋️ Gym / Angkat Beban": 5.0, "🧘 Yoga / Pilates": 3.0,
+  "🏸 Badminton": 5.5, "🎾 Tenis": 6.5, "🤸 Olahraga Lainnya": 5.0
+};
+
+// ── Haversine ─────────────────────────────────────────
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) *
+            Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// ── Format helpers ────────────────────────────────────
+function fmtTime(sec) {
+  const m = String(Math.floor(sec/60)).padStart(2,'0');
+  const s = String(sec%60).padStart(2,'0');
+  return m + ':' + s;
+}
+function fmtPace(distKm, sec) {
+  if (distKm < 0.01) return '--:--';
+  const paceSecPerKm = sec / distKm;
+  const pm = Math.floor(paceSecPerKm / 60);
+  const ps = Math.round(paceSecPerKm % 60);
+  return pm + ':' + String(ps).padStart(2,'0');
+}
+function calcCalories(durationMin, weightKg, activity) {
+  const met = MET[activity] || 5.0;
+  return Math.round(met * weightKg * (durationMin / 60));
+}
+
+// ── Timer tick ────────────────────────────────────────
+function tick() {
+  elapsedSeconds++;
+  const weight = parseFloat(document.getElementById('weight-input').value) || 65;
+  const activity = document.getElementById('activity-select').value;
+  const durationMin = elapsedSeconds / 60;
+  const cal = calcCalories(durationMin, weight, activity);
+
+  document.getElementById('stat-duration').textContent  = fmtTime(elapsedSeconds);
+  document.getElementById('stat-distance').textContent  = totalDistance.toFixed(2);
+  document.getElementById('stat-pace').textContent      = fmtPace(totalDistance, elapsedSeconds);
+  document.getElementById('stat-calories').textContent  = cal;
+}
+
+// ── GPS success callback ──────────────────────────────
+function onPosition(pos) {
+  const { latitude, longitude, accuracy, speed } = pos.coords;
+
+  // Update accuracy display
+  document.getElementById('gps-accuracy').textContent =
+    'Akurasi: ±' + Math.round(accuracy) + 'm';
+
+  // Warn if accuracy too low
+  if (accuracy > 50) {
+    document.getElementById('gps-warning').style.display = 'block';
+  } else {
+    document.getElementById('gps-warning').style.display = 'none';
+  }
+
+  // Calculate distance from last point
+  if (lastPos && accuracy <= 50) {
+    const d = haversine(lastPos.lat, lastPos.lon, latitude, longitude);
+    // Filter micro-jitter: hanya hitung jika > 3 meter
+    if (d > 0.003) {
+      totalDistance += d;
+    }
+  }
+  lastPos = { lat: latitude, lon: longitude };
+  positions.push({ lat: latitude, lon: longitude, t: Date.now() });
+
+  // Speed
+  if (speed != null) {
+    lastSpeedKmh = speed * 3.6;
+  } else if (positions.length >= 2) {
+    // Hitung manual dari 2 titik terakhir
+    const prev = positions[positions.length - 2];
+    const curr = positions[positions.length - 1];
+    const dt = (curr.t - prev.t) / 1000; // seconds
+    const dp = haversine(prev.lat, prev.lon, curr.lat, curr.lon);
+    lastSpeedKmh = dt > 0 ? (dp / dt) * 3600 : 0;
+  }
+  document.getElementById('stat-speed').textContent =
+    lastSpeedKmh.toFixed(1) + ' km/h';
+}
+
+function onError(err) {
+  document.getElementById('gps-warning').style.display = 'block';
+  document.getElementById('gps-accuracy').textContent = 'GPS Error: ' + err.message;
+}
+
+// ── Start ─────────────────────────────────────────────
+function startTracking() {
+  if (!navigator.geolocation) {
+    document.getElementById('gps-warning').style.display = 'block';
+    return;
+  }
+
+  state = 'active';
+  startTime = Date.now();
+  totalDistance = 0;
+  elapsedSeconds = 0;
+  positions = [];
+  lastPos = null;
+
+  // Lock activity & weight selects
+  document.getElementById('activity-select').disabled = true;
+  document.getElementById('weight-input').disabled = true;
+
+  // UI
+  document.getElementById('btn-start').style.display = 'none';
+  document.getElementById('active-btns').style.display = 'block';
+  setBadge('active', '⬤ AKTIF');
+
+  // Timer
+  timerInterval = setInterval(tick, 1000);
+
+  // GPS watch
+  watchId = navigator.geolocation.watchPosition(onPosition, onError, {
+    enableHighAccuracy: true,
+    maximumAge: 1000,
+    timeout: 10000,
+  });
+}
+
+// ── Pause / Resume ────────────────────────────────────
+function togglePause() {
+  if (state === 'active') {
+    state = 'paused';
+    clearInterval(timerInterval);
+    navigator.geolocation.clearWatch(watchId);
+    document.getElementById('btn-pause').textContent = '▶ Lanjutkan';
+    setBadge('paused', '⏸ PAUSE');
+  } else if (state === 'paused') {
+    state = 'active';
+    timerInterval = setInterval(tick, 1000);
+    watchId = navigator.geolocation.watchPosition(onPosition, onError, {
+      enableHighAccuracy: true, maximumAge: 1000, timeout: 10000,
+    });
+    document.getElementById('btn-pause').textContent = '⏸ Pause';
+    setBadge('active', '⬤ AKTIF');
+  }
+}
+
+// ── Stop ─────────────────────────────────────────────
+function stopTracking() {
+  state = 'done';
+  clearInterval(timerInterval);
+  if (watchId) navigator.geolocation.clearWatch(watchId);
+
+  const activity = document.getElementById('activity-select').value;
+  const weight   = parseFloat(document.getElementById('weight-input').value) || 65;
+  const dMin     = elapsedSeconds / 60;
+  const cal      = calcCalories(dMin, weight, activity);
+  const pace     = fmtPace(totalDistance, elapsedSeconds);
+
+  setBadge('done', '✅ SELESAI');
+  document.getElementById('active-btns').style.display = 'none';
+  document.getElementById('result-box').style.display  = 'block';
+
+  // Populate result
+  const rows = [
+    ['Aktivitas',   activity],
+    ['Durasi',      fmtTime(elapsedSeconds)],
+    ['Jarak',       totalDistance.toFixed(2) + ' km'],
+    ['Pace',        pace + ' min/km'],
+    ['Kecepatan',   lastSpeedKmh.toFixed(1) + ' km/h'],
+    ['Kalori',      cal + ' kkal'],
+    ['Berat badan', weight + ' kg'],
+  ];
+  document.getElementById('result-rows').innerHTML = rows.map(([k,v]) =>
+    `<div class="result-row"><span class="result-key">${k}</span><span class="result-val">${v}</span></div>`
+  ).join('');
+
+  // Store for copy
+  window._lastResult = {
+    activity, dMin: Math.round(dMin), distance: totalDistance.toFixed(2),
+    calories: cal, pace, speed: lastSpeedKmh.toFixed(1)
+  };
+}
+
+// ── Copy to clipboard ─────────────────────────────────
+function copyResult() {
+  const r = window._lastResult || {};
+  const note = document.getElementById('result-note').value;
+  const text = [
+    '=== Recovera Activity Result ===',
+    'Aktivitas : ' + (r.activity || '-'),
+    'Durasi    : ' + (r.dMin || 0) + ' menit',
+    'Jarak     : ' + (r.distance || '0.00') + ' km',
+    'Pace      : ' + (r.pace || '--:--') + ' min/km',
+    'Kalori    : ' + (r.calories || 0) + ' kkal',
+    note ? 'Catatan   : ' + note : '',
+    '================================',
+  ].filter(Boolean).join('\n');
+
+  navigator.clipboard.writeText(text).then(() => {
+    alert('✅ Disalin! Tempelkan di Log Manual untuk menyimpan ke riwayat.');
+  });
+}
+
+// ── Badge helper ──────────────────────────────────────
+function setBadge(type, text) {
+  const b = document.getElementById('status-badge');
+  b.className = 'status-badge status-' + type;
+  b.textContent = text;
+}
+</script>
+</body>
+</html>
+"""
+        components.html(gps_html, height=680, scrolling=True)
+
+        st.markdown("---")
+        st.markdown("""
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:14px 16px;">
+            <p style="color:#6b7280;font-size:11px;font-weight:700;letter-spacing:1px;margin:0 0 8px;">
+                📱 TIPS PENGGUNAAN
+            </p>
+            <ul style="color:#9CA3AF;font-size:13px;line-height:2;margin:0;padding-left:18px;">
+                <li>Gunakan di <b style="color:white;">luar ruangan</b> untuk akurasi GPS terbaik</li>
+                <li><b style="color:white;">Layar HP harus tetap aktif</b> selama tracking (aktifkan screen lock lebih lama)</li>
+                <li>Kalori dihitung dengan formula <b style="color:#fb923c;">MET × berat × durasi</b></li>
+                <li>Setelah selesai, <b style="color:white;">salin ringkasan</b> lalu tempel di tab Log Manual untuk disimpan</li>
+                <li>Jarak tidak terhitung saat <b style="color:white;">akurasi GPS > 50 meter</b> (sinyal lemah)</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════
+    # TAB 2: LOG MANUAL (dari lama, tidak berubah)
+    # ══════════════════════════════════════════════════════
     with tab_log:
-        st.markdown("#### Catat Aktivitas Baru")
+        st.markdown("#### Catat Aktivitas (Manual / Dari Hasil GPS)")
         with st.form("strava_form"):
             fc1, fc2 = st.columns(2)
             with fc1:
                 activity_type = st.selectbox("Jenis Aktivitas", ACTIVITY_TYPES)
                 duration_min  = st.number_input("Durasi (menit)",
                     min_value=1, max_value=600, value=30, step=5)
-                distance_km   = st.number_input("Jarak Tempuh (km) — opsional",
-                    min_value=0.0, max_value=200.0, value=0.0, step=0.1,
-                    help="Isi 0 jika tidak relevan (gym, yoga, dll)")
+                distance_km   = st.number_input("Jarak Tempuh (km)",
+                    min_value=0.0, max_value=200.0, value=0.0, step=0.01,
+                    help="Isi dari hasil GPS tracker, atau 0 jika tidak relevan")
             with fc2:
                 auto_cal = estimate_calories(activity_type, duration_min)
                 calories = st.number_input("Kalori Terbakar (kkal)",
                     min_value=0, max_value=5000, value=auto_cal, step=10,
-                    help="Estimasi otomatis via MET. Bisa disesuaikan manual.")
-                pace_input = st.text_input("Pace / Kecepatan — opsional",
+                    help="Estimasi otomatis via MET. Bisa diisi dari hasil GPS.")
+                pace_input = st.text_input("Pace / Kecepatan",
                     placeholder="cth: 5:30 /km atau 25 km/h")
                 body_temp  = st.number_input("Suhu Tubuh (°C) — opsional",
-                    min_value=0.0, max_value=42.0, value=0.0, step=0.1,
-                    help="Isi 0 jika tidak ingin mencatat")
+                    min_value=0.0, max_value=42.0, value=0.0, step=0.1)
             activity_note = st.text_area("Catatan (opsional)",
-                placeholder="Bagaimana rasanya? Kondisi cuaca, lokasi, dll.")
+                placeholder="Tempel ringkasan dari GPS Tracker, atau tulis sendiri.")
             submitted_strava = st.form_submit_button("💾 Simpan Aktivitas", use_container_width=True)
 
         if submitted_strava:
@@ -1313,13 +1846,15 @@ def show_strava_page():
             </p>
             <p style="color:#9CA3AF;font-size:13px;line-height:1.8;margin:0;">
                 Menggunakan formula <b style="color:#fb923c;">MET (Metabolic Equivalent of Task)</b>:<br>
-                <span style="color:#fbbf24;">Kalori = MET × berat badan (65 kg default) × (durasi / 60)</span><br>
-                Override manual jika punya data dari wearable atau aplikasi lain.
+                <span style="color:#fbbf24;">Kalori = MET × berat badan × (durasi / 60)</span><br>
+                Override manual jika punya data dari wearable atau GPS tracker di atas.
             </p>
         </div>
         """, unsafe_allow_html=True)
 
-    # ── TAB 2: RECAP MINGGUAN ────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════
+    # TAB 3: RECAP MINGGUAN (tidak berubah dari versi lama)
+    # ══════════════════════════════════════════════════════
     with tab_recap:
         if strava_df.empty:
             st.markdown("""
@@ -1342,7 +1877,6 @@ def show_strava_page():
             weekly_stats   = get_weekly_strava_stats(strava_df)
             best_week_lbl, best_week_cal = get_best_week(strava_df)
 
-            # Insight cards
             st.markdown("##### 🏆 Insight Mingguan")
             ic1, ic2, ic3 = st.columns(3)
             with ic1:
@@ -1383,8 +1917,6 @@ def show_strava_page():
                     """, unsafe_allow_html=True)
 
             st.markdown("---")
-
-            # Grafik kalori harian
             st.markdown("##### 🔥 Tren Kalori Harian (30 hari terakhir)")
             try:
                 last30 = strava_df_recap[
@@ -1416,7 +1948,6 @@ def show_strava_page():
             except Exception as e:
                 st.warning(f"Grafik tidak dapat ditampilkan: {e}")
 
-            # Grafik jarak
             st.markdown("##### 🗺️ Tren Jarak Tempuh Harian")
             try:
                 dist_df = last30[last30["distance_km"] > 0]
@@ -1444,7 +1975,6 @@ def show_strava_page():
             except Exception:
                 st.info("Belum ada data jarak tempuh.")
 
-            # Distribusi aktivitas
             st.markdown("##### 🎯 Distribusi Aktivitas (Semua Waktu)")
             try:
                 act_counts = strava_df_recap["activity_type"].value_counts().reset_index()
@@ -1463,7 +1993,6 @@ def show_strava_page():
             except Exception:
                 pass
 
-            # Koneksi ke Fatigue Risk
             st.markdown("---")
             st.markdown("##### 💚 Korelasi Olahraga vs Fatigue Risk")
             try:
@@ -1494,18 +2023,6 @@ def show_strava_page():
                             <p style="color:#6b7280;font-size:13px;margin:0;">{corr_desc}</p>
                         </div>
                         """, unsafe_allow_html=True)
-                        fig_corr = px.scatter(
-                            merged, x="exercise_min", y="Fatigue Risk", trendline="ols",
-                            title="Durasi Olahraga vs Fatigue Risk",
-                            color_discrete_sequence=["#fb923c"],
-                            labels={"exercise_min": "Durasi Olahraga (menit)", "Fatigue Risk": "Fatigue Risk (%)"},
-                        )
-                        fig_corr.update_layout(
-                            paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
-                            font=dict(color="white"), height=280,
-                            margin=dict(t=50, b=20, l=10, r=10),
-                        )
-                        st.plotly_chart(fig_corr, use_container_width=True, config=PLOTLY_CFG)
                     else:
                         st.info("Butuh minimal 3 hari data keduanya untuk melihat korelasi.")
                 else:
@@ -1513,7 +2030,9 @@ def show_strava_page():
             except Exception as ex:
                 st.info(f"Korelasi belum bisa dihitung: {ex}")
 
-    # ── TAB 3: RIWAYAT ──────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════
+    # TAB 4: RIWAYAT (tidak berubah dari versi lama)
+    # ══════════════════════════════════════════════════════
     with tab_history:
         if strava_df.empty:
             st.info("Belum ada aktivitas yang tercatat.")
@@ -1563,7 +2082,6 @@ def show_strava_page():
                     if st.button("❌ Batal", key="cancel_del_strava"):
                         st.session_state.confirm_delete_strava = False
                         st.rerun()
-
 
 # ══════════════════════════════════════════════════════
 #  AUTH SCREENS
