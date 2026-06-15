@@ -34,9 +34,42 @@ MENU_ITEMS = [
     "Face Check",
     "Daily Check",
     "Recovery",
+    "Strava",
     "Journey",
     "Guide",
 ]
+
+# ─────────────────────────────────────────────
+# STRAVA CONSTANTS
+# ─────────────────────────────────────────────
+
+ACTIVITY_TYPES = [
+    "🏃 Lari",
+    "🚶 Jalan Kaki",
+    "🏊 Berenang",
+    "🚴 Bersepeda",
+    "🥾 Hiking",
+    "⚽ Sepak Bola",
+    "🏋️ Gym / Angkat Beban",
+    "🧘 Yoga / Pilates",
+    "🏸 Badminton",
+    "🎾 Tenis",
+    "🤸 Olahraga Lainnya",
+]
+
+ACTIVITY_MET = {
+    "🏃 Lari":               9.8,
+    "🚶 Jalan Kaki":         3.5,
+    "🏊 Berenang":           8.0,
+    "🚴 Bersepeda":          7.5,
+    "🥾 Hiking":             6.0,
+    "⚽ Sepak Bola":         7.0,
+    "🏋️ Gym / Angkat Beban": 5.0,
+    "🧘 Yoga / Pilates":     3.0,
+    "🏸 Badminton":          5.5,
+    "🎾 Tenis":              6.5,
+    "🤸 Olahraga Lainnya":   5.0,
+}
 
 PLOTLY_CFG = {"displayModeBar": False, "responsive": True}
 
@@ -465,6 +498,7 @@ def get_user_files(username: str):
         f"data/users/{username}_history.csv",
         f"data/users/{username}_mood.csv",
         f"data/users/{username}_wellness.csv",
+        f"data/users/{username}_strava.csv",
     )
 
 # ─────────────────────────────────────────────
@@ -472,18 +506,20 @@ def get_user_files(username: str):
 # ─────────────────────────────────────────────
 
 defaults = {
-    "wellness_result":       None,
-    "menu":                  "Beranda",
-    "recovery_checks":       {},
-    "confirm_delete":        False,
-    "face_result":           None,
-    "logged_in":             False,
-    "user":                  None,
-    "auth_screen":           "welcome",
-    "show_onboarding":       False,
+    "wellness_result":        None,
+    "menu":                   "Beranda",
+    "recovery_checks":        {},
+    "confirm_delete":         False,
+    "confirm_delete_strava":  False,
+    "face_result":            None,
+    "logged_in":              False,
+    "user":                   None,
+    "auth_screen":            "welcome",
+    "show_onboarding":        False,
     # [FIX #8] flag konfirmasi overwrite
     "show_overwrite_confirm": False,
-    "pending_daily_data":    None,
+    "pending_daily_data":     None,
+    "strava_history":         [],
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -491,7 +527,7 @@ for k, v in defaults.items():
 
 if "progress_history" not in st.session_state:
     if st.session_state.logged_in and st.session_state.user:
-        _hf, _mf, _wf = get_user_files(st.session_state.user["username"])
+        _hf, _mf, _wf, _sf = get_user_files(st.session_state.user["username"])
         st.session_state.progress_history = (
             pd.read_csv(_hf).to_dict("records") if os.path.exists(_hf) else []
         )
@@ -505,9 +541,13 @@ if "progress_history" not in st.session_state:
                     st.session_state.wellness_result = _wdf.iloc[-1].to_dict()
             except Exception:
                 pass
+        st.session_state.strava_history = (
+            pd.read_csv(_sf).to_dict("records") if os.path.exists(_sf) else []
+        )
     else:
         st.session_state.progress_history = []
         st.session_state.mood_history     = []
+        st.session_state.strava_history   = []
 
 # ─────────────────────────────────────────────
 # CACHED LOADERS
@@ -607,18 +647,17 @@ def save_history(entry):
     h = st.session_state.progress_history
     if not h or h[-1] != entry:
         h.append(entry)
-        HISTORY_FILE, _, _ = get_user_files(st.session_state.user["username"])
-        pd.DataFrame(h).to_csv(HISTORY_FILE, index=False)
+        HISTORY_FILE, _, _, _ = get_user_files(st.session_state.user["username"])
 
 
 def save_mood(entry):
-    _, MOOD_FILE, _ = get_user_files(st.session_state.user["username"])
+    _, MOOD_FILE, _, _ = get_user_files(st.session_state.user["username"])
     st.session_state.mood_history.append(entry)
     pd.DataFrame(st.session_state.mood_history).to_csv(MOOD_FILE, index=False)
 
 
 def save_wellness_result(result: dict):
-    _, _, WELLNESS_FILE = get_user_files(st.session_state.user["username"])
+    _, _, WELLNESS_FILE, _ = get_user_files(st.session_state.user["username"])
     existing = []
     if os.path.exists(WELLNESS_FILE):
         try:
@@ -1003,6 +1042,529 @@ def recovery_plan_tabs(challenges_by_cat, prefix):
                 st.success("🎉 Semua challenge hari ini selesai! Luar biasa!")
 
 
+
+# ─────────────────────────────────────────────
+# STRAVA HELPER FUNCTIONS
+# ─────────────────────────────────────────────
+
+def get_strava_file():
+    _, _, _, STRAVA_FILE = get_user_files(st.session_state.user["username"])
+    return STRAVA_FILE
+
+
+def save_strava_entry(entry: dict):
+    STRAVA_FILE = get_strava_file()
+    existing = []
+    if os.path.exists(STRAVA_FILE):
+        try:
+            existing = pd.read_csv(STRAVA_FILE).to_dict("records")
+        except Exception:
+            pass
+    existing.append(entry)
+    pd.DataFrame(existing).to_csv(STRAVA_FILE, index=False)
+    st.session_state.strava_history = existing
+
+
+def load_strava_history() -> pd.DataFrame:
+    h = st.session_state.get("strava_history", [])
+    if not h:
+        STRAVA_FILE = get_strava_file()
+        if os.path.exists(STRAVA_FILE):
+            try:
+                df = pd.read_csv(STRAVA_FILE)
+                st.session_state.strava_history = df.to_dict("records")
+                return df
+            except Exception:
+                pass
+        return pd.DataFrame()
+    return pd.DataFrame(h)
+
+
+def estimate_calories(activity_type: str, duration_min: float, weight_kg: float = 65.0) -> int:
+    """Estimasi kalori pakai formula MET: Kalori = MET × berat_kg × (durasi / 60)"""
+    met = ACTIVITY_MET.get(activity_type, 5.0)
+    return int(met * weight_kg * (duration_min / 60))
+
+
+def get_todays_exercise_from_strava() -> int:
+    """Ambil total menit olahraga hari ini dari strava — dipakai sebagai default di Daily Check."""
+    df = load_strava_history()
+    if df.empty or "timestamp" not in df.columns:
+        return 30
+    try:
+        df["date_parsed"] = pd.to_datetime(df["timestamp"], errors="coerce").dt.date
+        today = datetime.now().date()
+        today_data = df[df["date_parsed"] == today]
+        if not today_data.empty:
+            total_min = pd.to_numeric(today_data["duration_min"], errors="coerce").sum()
+            return int(min(total_min, 300))
+    except Exception:
+        pass
+    return 30
+
+
+def get_weekly_strava_stats(df: pd.DataFrame) -> dict:
+    if df.empty:
+        return {}
+    try:
+        df = df.copy()
+        df["date_parsed"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        now = datetime.now()
+        week_start = now - timedelta(days=7)
+        prev_start = now - timedelta(days=14)
+        this_week = df[df["date_parsed"] >= week_start]
+        last_week = df[(df["date_parsed"] >= prev_start) & (df["date_parsed"] < week_start)]
+
+        def safe_sum(frame, col):
+            if frame.empty or col not in frame.columns:
+                return 0
+            return pd.to_numeric(frame[col], errors="coerce").sum()
+
+        stats = {
+            "total_sessions_this": len(this_week),
+            "total_sessions_last": len(last_week),
+            "total_duration_this": safe_sum(this_week, "duration_min"),
+            "total_duration_last": safe_sum(last_week, "duration_min"),
+            "total_calories_this": safe_sum(this_week, "calories"),
+            "total_calories_last": safe_sum(last_week, "calories"),
+            "total_distance_this": safe_sum(this_week, "distance_km"),
+            "total_distance_last": safe_sum(last_week, "distance_km"),
+        }
+        if not this_week.empty and "activity_type" in this_week.columns:
+            mode = this_week["activity_type"].mode()
+            stats["fav_activity"] = mode.iloc[0] if not mode.empty else "—"
+        else:
+            stats["fav_activity"] = "—"
+        return stats
+    except Exception:
+        return {}
+
+
+def get_activity_streak(df: pd.DataFrame) -> int:
+    if df.empty or "timestamp" not in df.columns:
+        return 0
+    try:
+        df = df.copy()
+        df["date_only"] = pd.to_datetime(df["timestamp"], errors="coerce").dt.date
+        active_days = sorted(df["date_only"].dropna().unique(), reverse=True)
+        if not active_days:
+            return 0
+        streak = 0
+        check_date = datetime.now().date()
+        for d in active_days:
+            if d == check_date or d == check_date - timedelta(days=1):
+                streak += 1
+                check_date = d - timedelta(days=1)
+            else:
+                break
+        return streak
+    except Exception:
+        return 0
+
+
+def get_best_week(df: pd.DataFrame) -> tuple:
+    if df.empty or "timestamp" not in df.columns:
+        return None, 0
+    try:
+        df = df.copy()
+        df["date_parsed"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["week"] = (
+            df["date_parsed"].dt.isocalendar().week.astype(str)
+            + "-" + df["date_parsed"].dt.year.astype(str)
+        )
+        df["calories"] = pd.to_numeric(df["calories"], errors="coerce").fillna(0)
+        weekly_cal = df.groupby("week")["calories"].sum()
+        best_week = weekly_cal.idxmax()
+        best_val  = int(weekly_cal.max())
+        return best_week, best_val
+    except Exception:
+        return None, 0
+
+
+# ─────────────────────────────────────────────
+# PAGE: STRAVA
+# ─────────────────────────────────────────────
+
+def show_strava_page():
+    st.markdown("""
+    <div style="text-align:center;padding:32px 16px 20px;">
+        <div style="display:inline-block;background:rgba(249,115,22,0.12);
+                    border:1px solid rgba(249,115,22,0.35);border-radius:30px;
+                    padding:6px 18px;margin-bottom:16px;">
+            <span style="color:#fb923c;font-size:13px;font-weight:600;letter-spacing:1.5px;">
+                ✦ ACTIVITY TRACKER
+            </span>
+        </div>
+        <h2 style="font-family:'Syne',sans-serif;font-weight:800;color:white;
+                   font-size:clamp(22px,5vw,34px);margin:0 0 10px;">
+            Strava — Log Aktivitas Fisik
+        </h2>
+        <p style="color:#9CA3AF;font-size:14px;margin:0 auto;line-height:1.7;max-width:480px;">
+            Catat setiap sesi olahraga. Pantau progres mingguanmu.
+            Data olahraga otomatis terhubung ke analisis Daily Check.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    strava_df = load_strava_history()
+    streak    = get_activity_streak(strava_df)
+
+    # ── Banner koneksi ke Daily Check ────────────────────────────────────────
+    if not strava_df.empty:
+        todays_min = get_todays_exercise_from_strava()
+        try:
+            tmp = strava_df.copy()
+            tmp["date_parsed"] = pd.to_datetime(tmp["timestamp"], errors="coerce").dt.date
+            todays_df = tmp[tmp["date_parsed"] == datetime.now().date()]
+        except Exception:
+            todays_df = pd.DataFrame()
+
+        if not todays_df.empty:
+            st.markdown(f"""
+            <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);
+                        border-radius:12px;padding:12px 16px;margin-bottom:14px;">
+                <p style="color:#86EFAC;font-size:13px;margin:0;line-height:1.7;">
+                    ✅ <b>Aktivitas hari ini terhubung ke Daily Check!</b> &nbsp;|&nbsp;
+                    Total durasi hari ini: <b>{int(todays_min)} menit</b>
+                    — otomatis jadi nilai default <i>Durasi Olahraga</i> di form Daily Check.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ── Quick Stats Bar ───────────────────────────────────────────────────────
+    if not strava_df.empty:
+        weekly_stats = get_weekly_strava_stats(strava_df)
+        qs1, qs2, qs3, qs4 = st.columns(4)
+        with qs1:
+            delta_sess = None
+            if weekly_stats.get("total_sessions_last", 0) > 0:
+                delta_sess = f"{weekly_stats['total_sessions_this'] - weekly_stats['total_sessions_last']:+d} sesi"
+            st.metric("Sesi Minggu Ini", f"{weekly_stats.get('total_sessions_this', 0)} sesi", delta=delta_sess)
+        with qs2:
+            delta_cal = None
+            if weekly_stats.get("total_calories_last", 0) > 0:
+                delta_cal = f"{int(weekly_stats['total_calories_this'] - weekly_stats['total_calories_last']):+d} kkal"
+            st.metric("Kalori Minggu Ini", f"{int(weekly_stats.get('total_calories_this', 0))} kkal",
+                      delta=delta_cal, delta_color="normal")
+        with qs3:
+            st.metric("Streak Aktif", f"{streak} hari 🔥" if streak > 0 else "0 hari")
+        with qs4:
+            dist_this = weekly_stats.get("total_distance_this", 0)
+            st.metric("Jarak Minggu Ini", f"{dist_this:.1f} km" if dist_this else "— km")
+        st.markdown("---")
+
+    # ── Tabs ─────────────────────────────────────────────────────────────────
+    tab_log, tab_recap, tab_history = st.tabs(["➕ Log Aktivitas", "📊 Recap Mingguan", "📋 Riwayat"])
+
+    # ── TAB 1: LOG AKTIVITAS ─────────────────────────────────────────────────
+    with tab_log:
+        st.markdown("#### Catat Aktivitas Baru")
+        with st.form("strava_form"):
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                activity_type = st.selectbox("Jenis Aktivitas", ACTIVITY_TYPES)
+                duration_min  = st.number_input("Durasi (menit)",
+                    min_value=1, max_value=600, value=30, step=5)
+                distance_km   = st.number_input("Jarak Tempuh (km) — opsional",
+                    min_value=0.0, max_value=200.0, value=0.0, step=0.1,
+                    help="Isi 0 jika tidak relevan (gym, yoga, dll)")
+            with fc2:
+                auto_cal = estimate_calories(activity_type, duration_min)
+                calories = st.number_input("Kalori Terbakar (kkal)",
+                    min_value=0, max_value=5000, value=auto_cal, step=10,
+                    help="Estimasi otomatis via MET. Bisa disesuaikan manual.")
+                pace_input = st.text_input("Pace / Kecepatan — opsional",
+                    placeholder="cth: 5:30 /km atau 25 km/h")
+                body_temp  = st.number_input("Suhu Tubuh (°C) — opsional",
+                    min_value=0.0, max_value=42.0, value=0.0, step=0.1,
+                    help="Isi 0 jika tidak ingin mencatat")
+            activity_note = st.text_area("Catatan (opsional)",
+                placeholder="Bagaimana rasanya? Kondisi cuaca, lokasi, dll.")
+            submitted_strava = st.form_submit_button("💾 Simpan Aktivitas", use_container_width=True)
+
+        if submitted_strava:
+            errors_s = []
+            if body_temp > 0 and (body_temp < 35.0 or body_temp > 42.0):
+                errors_s.append("Suhu tubuh tidak realistis (normal: 35–42°C).")
+            if errors_s:
+                for e in errors_s:
+                    st.error(e)
+            else:
+                entry = {
+                    "timestamp":     datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "activity_type": activity_type,
+                    "duration_min":  duration_min,
+                    "distance_km":   distance_km if distance_km > 0 else "",
+                    "calories":      calories,
+                    "pace":          pace_input.strip() if pace_input.strip() else "",
+                    "body_temp":     body_temp if body_temp > 0 else "",
+                    "note":          activity_note.strip(),
+                }
+                save_strava_entry(entry)
+                st.success(f"✅ **{activity_type}** berhasil disimpan! "
+                           f"{duration_min} menit · {calories} kkal terbakar 🔥")
+                st.rerun()
+
+        st.markdown("""
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;
+                    padding:14px 16px;margin-top:12px;">
+            <p style="color:#6b7280;font-size:12px;font-weight:700;letter-spacing:1px;margin:0 0 6px;">
+                💡 CARA HITUNG KALORI ESTIMASI
+            </p>
+            <p style="color:#9CA3AF;font-size:13px;line-height:1.8;margin:0;">
+                Menggunakan formula <b style="color:#fb923c;">MET (Metabolic Equivalent of Task)</b>:<br>
+                <span style="color:#fbbf24;">Kalori = MET × berat badan (65 kg default) × (durasi / 60)</span><br>
+                Override manual jika punya data dari wearable atau aplikasi lain.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── TAB 2: RECAP MINGGUAN ────────────────────────────────────────────────
+    with tab_recap:
+        if strava_df.empty:
+            st.markdown("""
+            <div class="empty-state">
+                <h2>Belum Ada Data Aktivitas</h2>
+                <p>Log aktivitas pertamamu di tab "Log Aktivitas" untuk melihat recap mingguan.</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            strava_df_recap = strava_df.copy()
+            try:
+                strava_df_recap["date_parsed"]  = pd.to_datetime(strava_df_recap["timestamp"], errors="coerce")
+                strava_df_recap["date_only"]    = strava_df_recap["date_parsed"].dt.date
+                strava_df_recap["calories"]     = pd.to_numeric(strava_df_recap["calories"], errors="coerce").fillna(0)
+                strava_df_recap["duration_min"] = pd.to_numeric(strava_df_recap["duration_min"], errors="coerce").fillna(0)
+                strava_df_recap["distance_km"]  = pd.to_numeric(strava_df_recap["distance_km"], errors="coerce").fillna(0)
+            except Exception:
+                pass
+
+            weekly_stats   = get_weekly_strava_stats(strava_df)
+            best_week_lbl, best_week_cal = get_best_week(strava_df)
+
+            # Insight cards
+            st.markdown("##### 🏆 Insight Mingguan")
+            ic1, ic2, ic3 = st.columns(3)
+            with ic1:
+                fav = weekly_stats.get("fav_activity", "—")
+                st.markdown(f"""
+                <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;
+                            padding:16px;text-align:center;">
+                    <p style="color:#6b7280;font-size:11px;font-weight:700;letter-spacing:1px;margin:0 0 8px;">AKTIVITAS FAVORIT</p>
+                    <p style="color:#fb923c;font-size:18px;font-weight:800;margin:0 0 4px;">{fav}</p>
+                    <p style="color:#9ca3af;font-size:12px;margin:0;">minggu ini</p>
+                </div>
+                """, unsafe_allow_html=True)
+            with ic2:
+                st.markdown(f"""
+                <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;
+                            padding:16px;text-align:center;">
+                    <p style="color:#6b7280;font-size:11px;font-weight:700;letter-spacing:1px;margin:0 0 8px;">STREAK AKTIF</p>
+                    <p style="color:#f59e0b;font-size:28px;font-weight:800;margin:0 0 4px;">{streak} 🔥</p>
+                    <p style="color:#9ca3af;font-size:12px;margin:0;">hari berturut-turut</p>
+                </div>
+                """, unsafe_allow_html=True)
+            with ic3:
+                if best_week_lbl:
+                    st.markdown(f"""
+                    <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;
+                                padding:16px;text-align:center;">
+                        <p style="color:#6b7280;font-size:11px;font-weight:700;letter-spacing:1px;margin:0 0 8px;">MINGGU TERBAIK</p>
+                        <p style="color:#22c55e;font-size:20px;font-weight:800;margin:0 0 4px;">{best_week_cal} kkal</p>
+                        <p style="color:#9ca3af;font-size:12px;margin:0;">Week {best_week_lbl}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                    <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;
+                                padding:16px;text-align:center;">
+                        <p style="color:#4b5563;font-size:13px;margin:0;">Butuh lebih banyak data</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            st.markdown("---")
+
+            # Grafik kalori harian
+            st.markdown("##### 🔥 Tren Kalori Harian (30 hari terakhir)")
+            try:
+                last30 = strava_df_recap[
+                    strava_df_recap["date_parsed"] >= datetime.now() - timedelta(days=30)
+                ]
+                if not last30.empty:
+                    daily_cal = last30.groupby("date_only").agg(
+                        total_cal=("calories", "sum"),
+                        sessions=("activity_type", "count"),
+                    ).reset_index()
+                    daily_cal["date_only"] = daily_cal["date_only"].astype(str)
+                    fig_cal = go.Figure()
+                    fig_cal.add_trace(go.Bar(
+                        x=daily_cal["date_only"], y=daily_cal["total_cal"],
+                        marker_color="#fb923c",
+                        hovertemplate="<b>%{x}</b><br>Kalori: %{y} kkal<extra></extra>",
+                    ))
+                    fig_cal.update_layout(
+                        paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
+                        font=dict(color="white"), height=280,
+                        margin=dict(t=20, b=40, l=10, r=10),
+                        xaxis=dict(tickangle=-30),
+                        yaxis=dict(title="kkal"),
+                        showlegend=False,
+                    )
+                    st.plotly_chart(fig_cal, use_container_width=True, config=PLOTLY_CFG)
+                else:
+                    st.info("Belum ada data 30 hari terakhir.")
+            except Exception as e:
+                st.warning(f"Grafik tidak dapat ditampilkan: {e}")
+
+            # Grafik jarak
+            st.markdown("##### 🗺️ Tren Jarak Tempuh Harian")
+            try:
+                dist_df = last30[last30["distance_km"] > 0]
+                if not dist_df.empty:
+                    daily_dist = dist_df.groupby("date_only")["distance_km"].sum().reset_index()
+                    daily_dist["date_only"] = daily_dist["date_only"].astype(str)
+                    fig_dist = go.Figure()
+                    fig_dist.add_trace(go.Scatter(
+                        x=daily_dist["date_only"], y=daily_dist["distance_km"],
+                        mode="lines+markers",
+                        line=dict(color="#38bdf8", width=2),
+                        marker=dict(size=7, color="#38bdf8"),
+                        fill="tozeroy", fillcolor="rgba(56,189,248,0.1)",
+                        hovertemplate="<b>%{x}</b><br>Jarak: %{y:.1f} km<extra></extra>",
+                    ))
+                    fig_dist.update_layout(
+                        paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
+                        font=dict(color="white"), height=260,
+                        margin=dict(t=20, b=40, l=10, r=10),
+                        xaxis=dict(tickangle=-30), yaxis=dict(title="km"),
+                    )
+                    st.plotly_chart(fig_dist, use_container_width=True, config=PLOTLY_CFG)
+                else:
+                    st.info("Belum ada data jarak (berlaku untuk lari, bersepeda, hiking, dll).")
+            except Exception:
+                st.info("Belum ada data jarak tempuh.")
+
+            # Distribusi aktivitas
+            st.markdown("##### 🎯 Distribusi Aktivitas (Semua Waktu)")
+            try:
+                act_counts = strava_df_recap["activity_type"].value_counts().reset_index()
+                act_counts.columns = ["activity_type", "count"]
+                if not act_counts.empty:
+                    fig_pie = px.pie(
+                        act_counts, names="activity_type", values="count",
+                        color_discrete_sequence=px.colors.qualitative.Set3,
+                    )
+                    fig_pie.update_traces(textposition="inside", textinfo="percent+label")
+                    fig_pie.update_layout(
+                        paper_bgcolor="#0E1117", font=dict(color="white"),
+                        height=320, margin=dict(t=20, b=20, l=10, r=10), showlegend=False,
+                    )
+                    st.plotly_chart(fig_pie, use_container_width=True, config=PLOTLY_CFG)
+            except Exception:
+                pass
+
+            # Koneksi ke Fatigue Risk
+            st.markdown("---")
+            st.markdown("##### 💚 Korelasi Olahraga vs Fatigue Risk")
+            try:
+                fatigue_history = st.session_state.progress_history
+                if fatigue_history:
+                    fat_df = pd.DataFrame(fatigue_history)
+                    fat_df["date_parsed"] = pd.to_datetime(fat_df["Date"], format="%d-%m-%Y %H:%M", errors="coerce")
+                    fat_df["date_only"]   = fat_df["date_parsed"].dt.date
+                    daily_exercise = strava_df_recap.groupby("date_only")["duration_min"].sum().reset_index()
+                    daily_exercise.columns = ["date_only", "exercise_min"]
+                    fat_df["date_only"]        = fat_df["date_only"].astype("object")
+                    daily_exercise["date_only"] = daily_exercise["date_only"].astype("object")
+                    merged = fat_df.merge(daily_exercise, on="date_only", how="inner")
+                    if len(merged) >= 3:
+                        corr_ex = round(merged["exercise_min"].corr(merged["Fatigue Risk"]), 2)
+                        corr_color = "#22c55e" if corr_ex < -0.2 else "#f59e0b" if corr_ex < 0.2 else "#ef4444"
+                        corr_desc  = (
+                            "🟢 Olahraga berkorelasi negatif dengan fatigue — bagus!"
+                            if corr_ex < -0.2 else
+                            "🟡 Belum ada pola yang jelas antara olahraga dan fatigue."
+                            if corr_ex < 0.2 else
+                            "🔴 Olahraga berlebihan mungkin menambah fatigue."
+                        )
+                        st.markdown(f"""
+                        <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;padding:16px 18px;">
+                            <p style="color:#9CA3AF;font-size:13px;margin:0 0 6px;">Korelasi <b>durasi olahraga</b> vs <b>Fatigue Risk</b>:</p>
+                            <p style="color:{corr_color};font-size:26px;font-weight:800;margin:0 0 6px;">r = {corr_ex}</p>
+                            <p style="color:#6b7280;font-size:13px;margin:0;">{corr_desc}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        fig_corr = px.scatter(
+                            merged, x="exercise_min", y="Fatigue Risk", trendline="ols",
+                            title="Durasi Olahraga vs Fatigue Risk",
+                            color_discrete_sequence=["#fb923c"],
+                            labels={"exercise_min": "Durasi Olahraga (menit)", "Fatigue Risk": "Fatigue Risk (%)"},
+                        )
+                        fig_corr.update_layout(
+                            paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
+                            font=dict(color="white"), height=280,
+                            margin=dict(t=50, b=20, l=10, r=10),
+                        )
+                        st.plotly_chart(fig_corr, use_container_width=True, config=PLOTLY_CFG)
+                    else:
+                        st.info("Butuh minimal 3 hari data keduanya untuk melihat korelasi.")
+                else:
+                    st.info("Lakukan Daily Check terlebih dahulu untuk melihat korelasi olahraga vs fatigue.")
+            except Exception as ex:
+                st.info(f"Korelasi belum bisa dihitung: {ex}")
+
+    # ── TAB 3: RIWAYAT ──────────────────────────────────────────────────────
+    with tab_history:
+        if strava_df.empty:
+            st.info("Belum ada aktivitas yang tercatat.")
+        else:
+            st.markdown(f"**Total aktivitas tersimpan: {len(strava_df)} sesi**")
+            display_df = strava_df.copy().rename(columns={
+                "timestamp":     "Waktu",
+                "activity_type": "Aktivitas",
+                "duration_min":  "Durasi (mnt)",
+                "distance_km":   "Jarak (km)",
+                "calories":      "Kalori (kkal)",
+                "pace":          "Pace",
+                "body_temp":     "Suhu (°C)",
+                "note":          "Catatan",
+            })
+            cols_show = ["Waktu","Aktivitas","Durasi (mnt)","Jarak (km)","Kalori (kkal)","Pace","Suhu (°C)","Catatan"]
+            cols_show = [c for c in cols_show if c in display_df.columns]
+            st.dataframe(display_df[cols_show].iloc[::-1].reset_index(drop=True), use_container_width=True)
+
+            csv_strava = strava_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📥 Download Riwayat Aktivitas (CSV)",
+                data=csv_strava,
+                file_name=f"recovera_strava_{st.session_state.user['username']}_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+            st.markdown("---")
+            if not st.session_state.get("confirm_delete_strava", False):
+                if st.button("🗑 Hapus Semua Riwayat Aktivitas"):
+                    st.session_state.confirm_delete_strava = True
+                    st.rerun()
+            else:
+                st.error("Yakin ingin menghapus semua riwayat aktivitas fisik?")
+                dc1, dc2 = st.columns(2)
+                with dc1:
+                    if st.button("✅ Ya, Hapus"):
+                        st.session_state.strava_history = []
+                        STRAVA_FILE = get_strava_file()
+                        if os.path.exists(STRAVA_FILE):
+                            os.remove(STRAVA_FILE)
+                        st.session_state.confirm_delete_strava = False
+                        st.success("Riwayat aktivitas berhasil dihapus.")
+                        st.rerun()
+                with dc2:
+                    if st.button("❌ Batal", key="cancel_del_strava"):
+                        st.session_state.confirm_delete_strava = False
+                        st.rerun()
+
+
 # ══════════════════════════════════════════════════════
 #  AUTH SCREENS
 # ══════════════════════════════════════════════════════
@@ -1263,9 +1825,23 @@ if st.session_state.get("show_onboarding", False):
                     </p>
                 </div>
             </div>
+            <div style="background:#0f172a;border:1px solid rgba(249,115,22,0.3);
+                        border-radius:14px;padding:14px 16px;display:flex;gap:14px;align-items:center;">
+                <div style="background:rgba(249,115,22,0.15);border-radius:10px;
+                            min-width:40px;height:40px;display:flex;align-items:center;
+                            justify-content:center;font-size:18px;">🏃</div>
+                <div>
+                    <p style="color:white;font-weight:700;font-size:14px;margin:0 0 3px;">
+                        Langkah 4 — Strava
+                    </p>
+                    <p style="color:#9CA3AF;font-size:13px;margin:0;line-height:1.5;">
+                        Log aktivitas fisikmu dan pantau progres olahraga mingguan. Terhubung otomatis ke Daily Check.
+                    </p>
+                </div>
+            </div>
         </div>
         <p style="color:#4ADE80;font-size:13px;margin:0 0 20px;">
-            ✦ Kombinasi Face Check + Daily Check menghasilkan analisis terlengkap!
+            ✦ Kombinasi Face Check + Daily Check + Strava = analisis terlengkap!
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -1380,7 +1956,8 @@ if menu == "Beranda":
         ("01", "Face Check",     "#EC4899", "Scan ekspresi wajahmu — deteksi kelelahan instan via kamera.",    "Tidak perlu isi apapun. Cukup tatap kamera."),
         ("02", "Daily Check",    "#3B82F6", "Lengkapi data harian (layar, tidur, stres) dalam 2 menit.",       "Kombinasi Face Check + Daily Check = analisis paling akurat."),
         ("03", "Recovery Plan",  "#A855F7", "Dapat rencana recovery personal sesuai kondisimu hari ini.",      "Bukan tips generik — adaptif berdasarkan data kamu."),
-        ("04", "Journey",        "#F59E0B", "Pantau tren kondisi mentalmu dari waktu ke waktu.",               "Grafik progres, mood harian, dan prediksi besok."),
+        ("04", "Strava",         "#F97316", "Log aktivitas fisik dan pantau progres olahraga mingguanmu.",     "Data olahraga otomatis terhubung ke analisis Daily Check."),
+        ("05", "Journey",        "#F59E0B", "Pantau tren kondisi mentalmu dari waktu ke waktu.",               "Grafik progres, mood harian, dan prediksi besok."),
     ]
     for num, title, color, desc, highlight in steps:
         st.markdown(f"""
@@ -1878,7 +2455,7 @@ elif menu == "Daily Check":
             productivity = st.number_input("Produktivitas Hari Ini (skala 1–100)",
                 min_value=1, max_value=100, value=70, step=5)
             exercise     = st.number_input("Durasi Olahraga (menit)",
-                min_value=0, max_value=300, value=30, step=5)
+                min_value=0, max_value=300, value=get_todays_exercise_from_strava(), step=5)
 
         st.markdown("---")
         st.markdown("#### Pertanyaan Kualitatif")
@@ -2238,6 +2815,9 @@ elif menu == "Recovery":
 # PAGE: JOURNEY
 # ═════════════════════════════════════════════
 
+elif menu == "Strava":
+    show_strava_page()
+
 elif menu == "Journey":
 
     st.markdown("""
@@ -2528,7 +3108,7 @@ elif menu == "Journey":
             if st.button("✅ Ya, Hapus Semua"):
                 st.session_state.progress_history = []
                 st.session_state.confirm_delete   = False
-                HISTORY_FILE, _, _ = get_user_files(st.session_state.user["username"])
+                HISTORY_FILE, _, _, _ = get_user_files(st.session_state.user["username"])
                 if os.path.exists(HISTORY_FILE): os.remove(HISTORY_FILE)
                 st.success("Riwayat berhasil dihapus.")
                 st.rerun()
