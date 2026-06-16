@@ -1274,15 +1274,13 @@ def show_strava_page():
         st.markdown("#### 🛰️ Live GPS Activity Tracker")
         st.info("💡 **Cara pakai:** Pilih aktivitas → tekan **Mulai** → izinkan akses lokasi → gerak! Layar HP harus tetap aktif selama tracking.")
 
-        # ── [FIX GPS] Tulis widget ke file HTML dan embed via <iframe allow="geolocation">
-        # Ini diperlukan karena components.html() menggunakan iframe yang memblokir
-        # akses navigator.geolocation secara default di browser modern.
-        import os, pathlib
-        gps_widget_path = pathlib.Path("gps_tracker_widget.html")
-
         # Widget GPS tracker inject via HTML/JS
-        gps_html = """
-<!DOCTYPE html>
+        # ── GPS Tracker via iframe workaround (allow geolocation) ──────────────
+        # Streamlit components.html() berjalan di dalam sandboxed iframe yang
+        # TIDAK memiliki izin geolocation. Solusi: inject iframe dengan
+        # allow="geolocation" melalui st.markdown unsafe_allow_html.
+
+        gps_html_raw = """<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1291,8 +1289,9 @@ def show_strava_page():
   body {
     background: #0E1117;
     color: white;
-    font-family: 'DM Sans', -apple-system, sans-serif;
-    padding: 16px;
+    font-family: -apple-system, 'DM Sans', sans-serif;
+    padding: 12px;
+    font-size: 15px;
   }
   .card {
     background: #111827;
@@ -1310,28 +1309,25 @@ def show_strava_page():
   .stat-box {
     background: #1f2937;
     border-radius: 10px;
-    padding: 12px;
+    padding: 14px 10px;
     text-align: center;
   }
   .stat-label {
     color: #6b7280;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 1px;
+    letter-spacing: 1.2px;
     text-transform: uppercase;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
   }
   .stat-value {
     color: white;
-    font-size: 22px;
+    font-size: 26px;
     font-weight: 800;
     line-height: 1;
   }
-  .stat-unit {
-    color: #9ca3af;
-    font-size: 11px;
-  }
-  select {
+  .stat-unit { color: #9ca3af; font-size: 11px; margin-top: 2px; }
+  select, input[type=number] {
     width: 100%;
     padding: 12px;
     background: #1f2937;
@@ -1340,139 +1336,99 @@ def show_strava_page():
     border-radius: 10px;
     font-size: 15px;
     margin-bottom: 10px;
-    appearance: none;
-  }
-  input[type="number"] {
-    width: 100%;
-    padding: 12px;
-    background: #1f2937;
-    color: white;
-    border: 1px solid #374151;
-    border-radius: 10px;
-    font-size: 15px;
-    margin-bottom: 10px;
+    -webkit-appearance: none;
   }
   label {
     color: #9ca3af;
     font-size: 12px;
     font-weight: 600;
     display: block;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
     letter-spacing: 0.5px;
   }
   .btn {
     width: 100%;
-    padding: 14px;
+    padding: 16px;
     border-radius: 12px;
     border: none;
     font-size: 16px;
     font-weight: 700;
     cursor: pointer;
     margin-bottom: 8px;
-    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
-  .btn-start {
-    background: linear-gradient(90deg, #22c55e, #16a34a);
-    color: white;
-  }
-  .btn-stop {
-    background: linear-gradient(90deg, #ef4444, #dc2626);
-    color: white;
-  }
-  .btn-pause {
-    background: linear-gradient(90deg, #f59e0b, #d97706);
-    color: white;
-  }
-  .btn-save {
-    background: linear-gradient(90deg, #3b82f6, #2563eb);
-    color: white;
-  }
-  .btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
+  .btn-start  { background: linear-gradient(90deg,#22c55e,#16a34a); color: white; }
+  .btn-stop   { background: linear-gradient(90deg,#ef4444,#dc2626); color: white; }
+  .btn-pause  { background: linear-gradient(90deg,#f59e0b,#d97706); color: white; }
+  .btn-save   { background: linear-gradient(90deg,#3b82f6,#2563eb); color: white; }
+  .btn:active { opacity: 0.8; transform: scale(0.98); }
   .status-badge {
     display: inline-block;
-    padding: 4px 12px;
+    padding: 5px 14px;
     border-radius: 20px;
     font-size: 12px;
     font-weight: 700;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
-  .status-idle    { background: rgba(107,114,128,0.2); color: #9ca3af; border: 1px solid #374151; }
-  .status-active  { background: rgba(34,197,94,0.2);  color: #22c55e; border: 1px solid #22c55e; animation: pulse 1.5s ease-in-out infinite; }
-  .status-paused  { background: rgba(245,158,11,0.2); color: #f59e0b; border: 1px solid #f59e0b; }
-  .status-done    { background: rgba(59,130,246,0.2); color: #60a5fa; border: 1px solid #3b82f6; }
+  .s-idle   { background:rgba(107,114,128,.2); color:#9ca3af; border:1px solid #374151; }
+  .s-active { background:rgba(34,197,94,.2);   color:#22c55e; border:1px solid #22c55e;
+              animation: pulse 1.5s ease-in-out infinite; }
+  .s-paused { background:rgba(245,158,11,.2);  color:#f59e0b; border:1px solid #f59e0b; }
+  .s-done   { background:rgba(59,130,246,.2);  color:#60a5fa; border:1px solid #3b82f6; }
   @keyframes pulse {
-    0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
-    50%      { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+    0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.4)}
+    50%    {box-shadow:0 0 0 8px rgba(34,197,94,0)}
   }
-  .pace-ring {
-    font-size: 32px;
-    font-weight: 900;
-    color: #fb923c;
-    text-align: center;
-    margin: 8px 0;
+  .speed-display {
+    text-align:center; margin: 10px 0;
+    font-size: 36px; font-weight: 900; color: #fb923c;
   }
   .result-box {
-    background: rgba(34,197,94,0.08);
-    border: 1px solid rgba(34,197,94,0.3);
+    background: rgba(34,197,94,.08);
+    border: 1px solid rgba(34,197,94,.3);
     border-radius: 12px;
     padding: 16px;
     margin-top: 12px;
     display: none;
   }
   .result-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 6px 0;
-    border-bottom: 1px solid #1f2937;
-    font-size: 14px;
+    display: flex; justify-content: space-between;
+    padding: 8px 0; border-bottom: 1px solid #1f2937; font-size: 14px;
   }
   .result-row:last-child { border-bottom: none; }
-  .result-key   { color: #9ca3af; }
-  .result-val   { color: white; font-weight: 700; }
-  .warning-box {
-    background: rgba(239,68,68,0.1);
-    border: 1px solid rgba(239,68,68,0.3);
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-size: 13px;
-    color: #fca5a5;
-    margin-top: 8px;
-    display: none;
+  .rk { color: #9ca3af; } .rv { color: white; font-weight: 700; }
+  .warn {
+    background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+    border-radius: 10px; padding: 10px 14px; font-size: 13px;
+    color: #fca5a5; margin-top: 8px; display: none;
   }
   textarea {
-    width: 100%;
-    background: #1f2937;
-    color: white;
-    border: 1px solid #374151;
-    border-radius: 10px;
-    padding: 10px;
-    font-size: 14px;
-    resize: vertical;
-    min-height: 60px;
+    width: 100%; background: #1f2937; color: white;
+    border: 1px solid #374151; border-radius: 10px;
+    padding: 10px; font-size: 14px; resize: vertical; min-height: 60px;
+    margin-top: 10px;
   }
   .copy-btn {
-    background: #22c55e22;
-    border: 1px solid #22c55e55;
-    color: #22c55e;
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 13px;
-    cursor: pointer;
-    margin-top: 8px;
-    width: 100%;
+    background: #22c55e22; border: 1px solid #22c55e55;
+    color: #22c55e; padding: 10px; border-radius: 8px;
+    font-size: 14px; cursor: pointer; margin-top: 8px; width: 100%;
+    font-weight: 700;
+  }
+  .gps-info { color: #6b7280; font-size: 11px; margin-top: 4px; }
+  #perm-guide {
+    background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3);
+    border-radius: 10px; padding: 12px 14px; font-size: 13px;
+    color: #93c5fd; margin-top: 8px; display: none; line-height: 1.7;
   }
 </style>
 </head>
 <body>
 
-<!-- Setup -->
-<div class="card" id="setup-card">
-  <p style="color:#6b7280;font-size:11px;font-weight:700;letter-spacing:1px;margin-bottom:10px;">SETUP AKTIVITAS</p>
+<div class="card">
+  <p style="color:#6b7280;font-size:10px;font-weight:700;letter-spacing:1.2px;margin-bottom:12px;">SETUP AKTIVITAS</p>
   <label>Jenis Aktivitas</label>
-  <select id="activity-select">
+  <select id="act">
     <option>🏃 Lari</option>
     <option>🚶 Jalan Kaki</option>
     <option>🏊 Berenang</option>
@@ -1485,366 +1441,274 @@ def show_strava_page():
     <option>🎾 Tenis</option>
     <option>🤸 Olahraga Lainnya</option>
   </select>
-  <label>Berat Badan (kg) — untuk kalkulasi kalori</label>
-  <input type="number" id="weight-input" value="65" min="30" max="200" step="1">
+  <label>Berat Badan (kg)</label>
+  <input type="number" id="wt" value="65" min="30" max="200" step="1">
 </div>
 
-<!-- Status & Controls -->
 <div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-    <span class="status-badge status-idle" id="status-badge">⬤ SIAP</span>
-    <span style="color:#6b7280;font-size:12px;" id="gps-accuracy"></span>
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+    <span class="status-badge s-idle" id="badge">⬤ SIAP</span>
+    <span class="gps-info" id="gps-acc"></span>
   </div>
 
-  <!-- Live Stats -->
   <div class="stat-grid">
     <div class="stat-box">
       <div class="stat-label">Durasi</div>
-      <div class="stat-value" id="stat-duration">00:00</div>
+      <div class="stat-value" id="s-dur">00:00</div>
       <div class="stat-unit">mm:ss</div>
     </div>
     <div class="stat-box">
       <div class="stat-label">Jarak</div>
-      <div class="stat-value" id="stat-distance">0.00</div>
+      <div class="stat-value" id="s-dist">0.00</div>
       <div class="stat-unit">km</div>
     </div>
     <div class="stat-box">
       <div class="stat-label">Pace</div>
-      <div class="stat-value" id="stat-pace">--:--</div>
+      <div class="stat-value" id="s-pace">--:--</div>
       <div class="stat-unit">min/km</div>
     </div>
     <div class="stat-box">
       <div class="stat-label">Kalori</div>
-      <div class="stat-value" id="stat-calories">0</div>
+      <div class="stat-value" id="s-cal">0</div>
       <div class="stat-unit">kkal</div>
     </div>
   </div>
 
-  <!-- Speed -->
-  <div style="text-align:center;margin:8px 0;">
-    <span style="color:#6b7280;font-size:11px;">KECEPATAN SAAT INI</span><br>
-    <span class="pace-ring" id="stat-speed">0.0 km/h</span>
+  <div class="speed-display" id="s-spd">0.0 km/h</div>
+  <div style="text-align:center;margin-bottom:10px;">
+    <small style="color:#6b7280;font-size:10px;letter-spacing:1px;">KECEPATAN SAAT INI</small>
   </div>
 
-  <!-- Buttons -->
   <button class="btn btn-start" id="btn-start" onclick="startTracking()">▶ Mulai Tracking</button>
-  <div style="display:none;" id="active-btns">
+  <div id="act-btns" style="display:none;">
     <button class="btn btn-pause" id="btn-pause" onclick="togglePause()">⏸ Pause</button>
-    <button class="btn btn-stop"  onclick="stopTracking()">⏹ Stop & Simpan</button>
+    <button class="btn btn-stop" onclick="stopTracking()">⏹ Stop &amp; Simpan</button>
   </div>
 
-  <div class="warning-box" id="gps-warning">
-    ⚠️ GPS tidak tersedia atau akurasi rendah. Pastikan kamu di luar ruangan dan izin lokasi sudah diberikan di browser.
-  </div>
-  <!-- [FIX GPS] Petunjuk izin lokasi, tampil saat tombol ditekan pertama kali -->
-  <div id="gps-permission-hint" style="display:none;margin-top:8px;
-       background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);
-       border-radius:10px;padding:10px 14px;font-size:13px;color:#93c5fd;line-height:1.7;">
-    📍 <b>Cara mengizinkan lokasi:</b><br>
-    Chrome: klik ikon 🔒 di address bar → Izin Situs → Lokasi → Izinkan<br>
-    Firefox: klik ikon 🔒 → Izin Koneksi → Lokasi<br>
-    Safari: Pengaturan → Safari → Lokasi → Izinkan
+  <div class="warn" id="warn"></div>
+  <div id="perm-guide">
+    <b>📍 Cara mengaktifkan izin lokasi:</b><br>
+    <b>Android Chrome:</b> Ketuk ikon 🔒 di address bar → Izin → Lokasi → Izinkan<br>
+    <b>iOS Safari:</b> Pengaturan → Safari → Lokasi → Izinkan
   </div>
 </div>
 
-<!-- Result -->
 <div class="result-box" id="result-box">
-  <p style="color:#22c55e;font-weight:700;font-size:14px;margin-bottom:10px;">✅ Aktivitas Selesai — Salin data di bawah ke form Log Manual</p>
+  <p style="color:#22c55e;font-weight:700;font-size:14px;margin-bottom:10px;">
+    ✅ Aktivitas Selesai!
+  </p>
   <div id="result-rows"></div>
-  <label style="margin-top:12px;">Catatan (opsional)</label>
-  <textarea id="result-note" placeholder="Bagaimana rasanya? Cuaca, lokasi, dll."></textarea>
-  <button class="copy-btn" onclick="copyResult()">📋 Salin Ringkasan Aktivitas</button>
+  <textarea id="note" placeholder="Catatan: cuaca, lokasi, perasaan..."></textarea>
+  <button class="copy-btn" onclick="copyResult()">📋 Salin Ringkasan → Log Manual</button>
 </div>
 
 <script>
-// ── State ─────────────────────────────────────────────
-let state = 'idle'; // idle | active | paused | done
-let watchId = null;
-let timerInterval = null;
-let elapsedSeconds = 0;
-let pausedSeconds = 0;
-let startTime = null;
-let lastPos = null;
-let totalDistance = 0; // km
-let positions = [];
-let lastSpeedKmh = 0;
-
 const MET = {
-  "🏃 Lari": 9.8, "🚶 Jalan Kaki": 3.5, "🏊 Berenang": 8.0,
-  "🚴 Bersepeda": 7.5, "🥾 Hiking": 6.0, "⚽ Sepak Bola": 7.0,
-  "🏋️ Gym / Angkat Beban": 5.0, "🧘 Yoga / Pilates": 3.0,
-  "🏸 Badminton": 5.5, "🎾 Tenis": 6.5, "🤸 Olahraga Lainnya": 5.0
+  "🏃 Lari":9.8,"🚶 Jalan Kaki":3.5,"🏊 Berenang":8.0,
+  "🚴 Bersepeda":7.5,"🥾 Hiking":6.0,"⚽ Sepak Bola":7.0,
+  "🏋️ Gym / Angkat Beban":5.0,"🧘 Yoga / Pilates":3.0,
+  "🏸 Badminton":5.5,"🎾 Tenis":6.5,"🤸 Olahraga Lainnya":5.0
 };
 
-// ── Haversine ─────────────────────────────────────────
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2)**2 +
-            Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) *
-            Math.sin(dLon/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+let state='idle', watchId=null, timerInv=null;
+let elapsed=0, dist=0, lastPos=null, positions=[], lastSpd=0;
+
+function hav(la1,lo1,la2,lo2){
+  const R=6371,dL=(la2-la1)*Math.PI/180,dO=(lo2-lo1)*Math.PI/180;
+  const a=Math.sin(dL/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dO/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function fmtT(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+function fmtP(d,s){if(d<0.01)return'--:--';const p=s/d;return Math.floor(p/60)+':'+String(Math.round(p%60)).padStart(2,'0');}
+function kkal(min,kg,act){return Math.round((MET[act]||5)*kg*(min/60));}
+function setBadge(cls,txt){const b=document.getElementById('badge');b.className='status-badge '+cls;b.textContent=txt;}
+function showWarn(msg,showGuide=false){
+  const w=document.getElementById('warn');
+  w.style.display='block'; w.textContent=msg;
+  document.getElementById('perm-guide').style.display=showGuide?'block':'none';
+}
+function hideWarn(){
+  document.getElementById('warn').style.display='none';
+  document.getElementById('perm-guide').style.display='none';
 }
 
-// ── Format helpers ────────────────────────────────────
-function fmtTime(sec) {
-  const m = String(Math.floor(sec/60)).padStart(2,'0');
-  const s = String(sec%60).padStart(2,'0');
-  return m + ':' + s;
-}
-function fmtPace(distKm, sec) {
-  if (distKm < 0.01) return '--:--';
-  const paceSecPerKm = sec / distKm;
-  const pm = Math.floor(paceSecPerKm / 60);
-  const ps = Math.round(paceSecPerKm % 60);
-  return pm + ':' + String(ps).padStart(2,'0');
-}
-function calcCalories(durationMin, weightKg, activity) {
-  const met = MET[activity] || 5.0;
-  return Math.round(met * weightKg * (durationMin / 60));
+function tick(){
+  elapsed++;
+  const kg=parseFloat(document.getElementById('wt').value)||65;
+  const act=document.getElementById('act').value;
+  document.getElementById('s-dur').textContent=fmtT(elapsed);
+  document.getElementById('s-dist').textContent=dist.toFixed(2);
+  document.getElementById('s-pace').textContent=fmtP(dist,elapsed);
+  document.getElementById('s-cal').textContent=kkal(elapsed/60,kg,act);
 }
 
-// ── Timer tick ────────────────────────────────────────
-function tick() {
-  elapsedSeconds++;
-  const weight = parseFloat(document.getElementById('weight-input').value) || 65;
-  const activity = document.getElementById('activity-select').value;
-  const durationMin = elapsedSeconds / 60;
-  const cal = calcCalories(durationMin, weight, activity);
-
-  document.getElementById('stat-duration').textContent  = fmtTime(elapsedSeconds);
-  document.getElementById('stat-distance').textContent  = totalDistance.toFixed(2);
-  document.getElementById('stat-pace').textContent      = fmtPace(totalDistance, elapsedSeconds);
-  document.getElementById('stat-calories').textContent  = cal;
-}
-
-// ── GPS success callback ──────────────────────────────
-function onPosition(pos) {
-  const { latitude, longitude, accuracy, speed } = pos.coords;
-
-  // Update accuracy display
-  document.getElementById('gps-accuracy').textContent =
-    'Akurasi: ±' + Math.round(accuracy) + 'm';
-
-  // Warn if accuracy too low
-  if (accuracy > 50) {
-    document.getElementById('gps-warning').style.display = 'block';
-  } else {
-    document.getElementById('gps-warning').style.display = 'none';
+function onPos(pos){
+  const{latitude:la,longitude:lo,accuracy:acc,speed:spd}=pos.coords;
+  document.getElementById('gps-acc').textContent='GPS ±'+Math.round(acc)+'m';
+  if(acc>60){showWarn('⚠️ Sinyal GPS lemah (akurasi >60m). Coba ke luar ruangan.');}
+  else{hideWarn();}
+  if(lastPos&&acc<=60){
+    const d=hav(lastPos.la,lastPos.lo,la,lo);
+    if(d>0.003)dist+=d;
   }
-
-  // Calculate distance from last point
-  if (lastPos && accuracy <= 50) {
-    const d = haversine(lastPos.lat, lastPos.lon, latitude, longitude);
-    // Filter micro-jitter: hanya hitung jika > 3 meter
-    if (d > 0.003) {
-      totalDistance += d;
-    }
+  lastPos={la,lo};
+  const now=Date.now();
+  positions.push({la,lo,t:now});
+  if(spd!=null&&spd>=0){lastSpd=spd*3.6;}
+  else if(positions.length>=2){
+    const pr=positions[positions.length-2],cr=positions[positions.length-1];
+    const dt=(cr.t-pr.t)/1000;
+    const dp=hav(pr.la,pr.lo,cr.la,cr.lo);
+    lastSpd=dt>0?(dp/dt)*3600:0;
   }
-  lastPos = { lat: latitude, lon: longitude };
-  positions.push({ lat: latitude, lon: longitude, t: Date.now() });
-
-  // Speed
-  if (speed != null) {
-    lastSpeedKmh = speed * 3.6;
-  } else if (positions.length >= 2) {
-    // Hitung manual dari 2 titik terakhir
-    const prev = positions[positions.length - 2];
-    const curr = positions[positions.length - 1];
-    const dt = (curr.t - prev.t) / 1000; // seconds
-    const dp = haversine(prev.lat, prev.lon, curr.lat, curr.lon);
-    lastSpeedKmh = dt > 0 ? (dp / dt) * 3600 : 0;
-  }
-  document.getElementById('stat-speed').textContent =
-    lastSpeedKmh.toFixed(1) + ' km/h';
+  document.getElementById('s-spd').textContent=lastSpd.toFixed(1)+' km/h';
 }
 
-function onError(err) {
-  const warn = document.getElementById('gps-warning');
-  warn.style.display = 'block';
-  // [FIX GPS] Pesan error yang lebih informatif per kode error
-  const errMessages = {
-    1: '❌ Izin lokasi ditolak. Buka pengaturan browser → izinkan lokasi untuk situs ini.',
-    2: '⚠️ Posisi tidak tersedia. Pastikan kamu di luar ruangan atau sinyal GPS cukup.',
-    3: '⌛ Timeout GPS. Coba lagi di area dengan sinyal lebih baik.',
-  };
-  const msg = errMessages[err.code] || ('GPS Error: ' + err.message);
-  warn.innerHTML = msg;
-  document.getElementById('gps-accuracy').textContent = '❌ GPS Error (kode ' + err.code + ')';
+function onErr(err){
+  let msg='⚠️ GPS tidak bisa diakses.';
+  let guide=false;
+  if(err.code===1){
+    msg='🚫 Izin lokasi ditolak. Aktifkan izin lokasi di pengaturan browser.';
+    guide=true;
+  } else if(err.code===2){
+    msg='📡 Sinyal GPS tidak tersedia. Coba pindah ke luar ruangan.';
+  } else if(err.code===3){
+    msg='⏱️ GPS timeout. Pastikan lokasi aktif dan coba lagi.';
+  }
+  showWarn(msg, guide);
+  // Reset tombol agar bisa coba lagi
+  document.getElementById('btn-start').style.display='block';
+  document.getElementById('act-btns').style.display='none';
+  setBadge('s-idle','⬤ SIAP');
+  state='idle';
 }
 
-// ── Start ─────────────────────────────────────────────
-function startTracking() {
-  // [FIX GPS] Deteksi jika geolocation tidak tersedia (terblokir di iframe)
-  if (!navigator.geolocation) {
-    const warn = document.getElementById('gps-warning');
-    warn.style.display = 'block';
-    warn.innerHTML = '⚠️ <b>GPS tidak bisa diakses.</b><br>'
-      + 'Browser memblokir akses lokasi di dalam frame ini.<br>'
-      + 'Solusi: buka halaman ini di tab baru, atau izinkan akses lokasi di pengaturan browser kamu.';
-    document.getElementById('gps-accuracy').textContent = '❌ Geolocation tidak tersedia';
-    document.getElementById('gps-permission-hint').style.display = 'block';
+function startTracking(){
+  if(!navigator.geolocation){
+    showWarn('❌ Browser ini tidak mendukung GPS. Coba Chrome/Firefox terbaru.',true);
     return;
   }
+  // Minta izin dulu
+  setBadge('s-active','📡 Mendeteksi GPS...');
+  document.getElementById('btn-start').disabled=true;
+  document.getElementById('btn-start').textContent='⏳ Menghubungkan GPS...';
 
-  // [FIX GPS] Minta permission lokasi lebih awal & beri feedback sebelum mulai
-  document.getElementById('btn-start').disabled = true;
-  document.getElementById('btn-start').textContent = '⏳ Menghubungkan GPS...';
-  document.getElementById('gps-accuracy').textContent = 'Menunggu izin lokasi...';
-
-  state = 'active';
-  startTime = Date.now();
-  totalDistance = 0;
-  elapsedSeconds = 0;
-  positions = [];
-  lastPos = null;
-
-  // Lock activity & weight selects
-  document.getElementById('activity-select').disabled = true;
-  document.getElementById('weight-input').disabled = true;
-
-  // UI
-  document.getElementById('btn-start').style.display = 'none';
-  document.getElementById('active-btns').style.display = 'block';
-  setBadge('active', '⬤ AKTIF');
-
-  // Timer
-  timerInterval = setInterval(tick, 1000);
-
-  // GPS watch — [FIX GPS] gunakan getCurrentPosition dulu untuk trigger permission dialog
   navigator.geolocation.getCurrentPosition(
-    function(pos) {
-      // Permission granted — langsung mulai watchPosition
-      onPosition(pos);
-      watchId = navigator.geolocation.watchPosition(onPosition, onError, {
-        enableHighAccuracy: true,
-        maximumAge: 1000,
-        timeout: 10000,
+    function(pos){
+      // Berhasil dapat posisi pertama — mulai tracking
+      state='active';
+      elapsed=0; dist=0; positions=[]; lastPos=null; lastSpd=0;
+      document.getElementById('act').disabled=true;
+      document.getElementById('wt').disabled=true;
+      document.getElementById('btn-start').style.display='none';
+      document.getElementById('btn-start').disabled=false;
+      document.getElementById('btn-start').textContent='▶ Mulai Tracking';
+      document.getElementById('act-btns').style.display='block';
+      setBadge('s-active','⬤ AKTIF');
+      hideWarn();
+      timerInv=setInterval(tick,1000);
+      onPos(pos); // proses posisi pertama
+      watchId=navigator.geolocation.watchPosition(onPos,onErr,{
+        enableHighAccuracy:true, maximumAge:2000, timeout:15000
       });
     },
-    function(err) {
-      // Permission ditolak atau error — batalkan tracking
-      onError(err);
-      clearInterval(timerInterval);
-      state = 'idle';
-      document.getElementById('activity-select').disabled = false;
-      document.getElementById('weight-input').disabled = false;
-      document.getElementById('btn-start').style.display = 'block';
-      document.getElementById('btn-start').disabled = false;
-      document.getElementById('btn-start').textContent = '▶ Mulai Tracking';
-      document.getElementById('active-btns').style.display = 'none';
-      document.getElementById('gps-permission-hint').style.display = 'block';
-      setBadge('idle', '⬤ SIAP');
+    function(err){
+      document.getElementById('btn-start').disabled=false;
+      document.getElementById('btn-start').textContent='▶ Mulai Tracking';
+      setBadge('s-idle','⬤ SIAP');
+      onErr(err);
     },
-    { enableHighAccuracy: true, timeout: 15000 }
+    {enableHighAccuracy:true, timeout:15000, maximumAge:0}
   );
 }
 
-// ── Pause / Resume ────────────────────────────────────
-function togglePause() {
-  if (state === 'active') {
-    state = 'paused';
-    clearInterval(timerInterval);
+function togglePause(){
+  if(state==='active'){
+    state='paused';
+    clearInterval(timerInv);
     navigator.geolocation.clearWatch(watchId);
-    document.getElementById('btn-pause').textContent = '▶ Lanjutkan';
-    setBadge('paused', '⏸ PAUSE');
-  } else if (state === 'paused') {
-    state = 'active';
-    timerInterval = setInterval(tick, 1000);
-    watchId = navigator.geolocation.watchPosition(onPosition, onError, {
-      enableHighAccuracy: true, maximumAge: 1000, timeout: 10000,
+    document.getElementById('btn-pause').textContent='▶ Lanjutkan';
+    setBadge('s-paused','⏸ PAUSE');
+  } else if(state==='paused'){
+    state='active';
+    timerInv=setInterval(tick,1000);
+    watchId=navigator.geolocation.watchPosition(onPos,onErr,{
+      enableHighAccuracy:true,maximumAge:2000,timeout:15000
     });
-    document.getElementById('btn-pause').textContent = '⏸ Pause';
-    setBadge('active', '⬤ AKTIF');
+    document.getElementById('btn-pause').textContent='⏸ Pause';
+    setBadge('s-active','⬤ AKTIF');
   }
 }
 
-// ── Stop ─────────────────────────────────────────────
-function stopTracking() {
-  state = 'done';
-  clearInterval(timerInterval);
-  if (watchId) navigator.geolocation.clearWatch(watchId);
-
-  const activity = document.getElementById('activity-select').value;
-  const weight   = parseFloat(document.getElementById('weight-input').value) || 65;
-  const dMin     = elapsedSeconds / 60;
-  const cal      = calcCalories(dMin, weight, activity);
-  const pace     = fmtPace(totalDistance, elapsedSeconds);
-
-  setBadge('done', '✅ SELESAI');
-  document.getElementById('active-btns').style.display = 'none';
-  document.getElementById('result-box').style.display  = 'block';
-
-  // Populate result
-  const rows = [
-    ['Aktivitas',   activity],
-    ['Durasi',      fmtTime(elapsedSeconds)],
-    ['Jarak',       totalDistance.toFixed(2) + ' km'],
-    ['Pace',        pace + ' min/km'],
-    ['Kecepatan',   lastSpeedKmh.toFixed(1) + ' km/h'],
-    ['Kalori',      cal + ' kkal'],
-    ['Berat badan', weight + ' kg'],
+function stopTracking(){
+  state='done';
+  clearInterval(timerInv);
+  if(watchId)navigator.geolocation.clearWatch(watchId);
+  const act=document.getElementById('act').value;
+  const kg=parseFloat(document.getElementById('wt').value)||65;
+  const dMin=elapsed/60;
+  const cal=kkal(dMin,kg,act);
+  const pace=fmtP(dist,elapsed);
+  setBadge('s-done','✅ SELESAI');
+  document.getElementById('act-btns').style.display='none';
+  const rb=document.getElementById('result-box');
+  rb.style.display='block';
+  const rows=[
+    ['Aktivitas',act],['Durasi',fmtT(elapsed)],
+    ['Jarak',dist.toFixed(2)+' km'],['Pace',pace+' min/km'],
+    ['Kecepatan maks',lastSpd.toFixed(1)+' km/h'],
+    ['Kalori',cal+' kkal'],['Berat badan',kg+' kg'],
   ];
-  document.getElementById('result-rows').innerHTML = rows.map(([k,v]) =>
-    `<div class="result-row"><span class="result-key">${k}</span><span class="result-val">${v}</span></div>`
+  document.getElementById('result-rows').innerHTML=rows.map(
+    ([k,v])=>`<div class="result-row"><span class="rk">${k}</span><span class="rv">${v}</span></div>`
   ).join('');
-
-  // Store for copy
-  window._lastResult = {
-    activity, dMin: Math.round(dMin), distance: totalDistance.toFixed(2),
-    calories: cal, pace, speed: lastSpeedKmh.toFixed(1)
-  };
+  window._res={act,dMin:Math.round(dMin),dist:dist.toFixed(2),cal,pace,spd:lastSpd.toFixed(1)};
+  rb.scrollIntoView({behavior:'smooth'});
 }
 
-// ── Copy to clipboard ─────────────────────────────────
-function copyResult() {
-  const r = window._lastResult || {};
-  const note = document.getElementById('result-note').value;
-  const text = [
-    '=== Recovera Activity Result ===',
-    'Aktivitas : ' + (r.activity || '-'),
-    'Durasi    : ' + (r.dMin || 0) + ' menit',
-    'Jarak     : ' + (r.distance || '0.00') + ' km',
-    'Pace      : ' + (r.pace || '--:--') + ' min/km',
-    'Kalori    : ' + (r.calories || 0) + ' kkal',
-    note ? 'Catatan   : ' + note : '',
-    '================================',
-  ].filter(Boolean).join('\n');
-
-  navigator.clipboard.writeText(text).then(() => {
-    alert('✅ Disalin! Tempelkan di Log Manual untuk menyimpan ke riwayat.');
-  });
-}
-
-// ── Badge helper ──────────────────────────────────────
-function setBadge(type, text) {
-  const b = document.getElementById('status-badge');
-  b.className = 'status-badge status-' + type;
-  b.textContent = text;
+function copyResult(){
+  const r=window._res||{};
+  const note=document.getElementById('note').value;
+  const lines=[
+    '=== Recovera GPS Result ===',
+    'Aktivitas : '+(r.act||'-'),
+    'Durasi    : '+(r.dMin||0)+' menit',
+    'Jarak     : '+(r.dist||'0.00')+' km',
+    'Pace      : '+(r.pace||'--:--')+' min/km',
+    'Kalori    : '+(r.cal||0)+' kkal',
+    note?'Catatan   : '+note:'',
+    '===========================',
+  ].filter(Boolean).join('\\n');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(lines).then(()=>alert('✅ Disalin! Buka tab Log Manual dan tempel di kolom Catatan.'));
+  } else {
+    // Fallback untuk browser yang tidak support clipboard API
+    const ta=document.createElement('textarea');
+    ta.value=lines; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('✅ Disalin! Buka tab Log Manual dan tempel di kolom Catatan.');
+  }
 }
 </script>
 </body>
-</html>
-"""
-        # [FIX GPS] Simpan HTML ke file lalu embed via <iframe allow="geolocation">
-        # components.html() menggunakan sandbox iframe yang memblokir navigator.geolocation.
-        # Solusi: tulis ke file statis dan embed langsung dengan atribut allow="geolocation".
-        gps_widget_path.write_text(gps_html, encoding="utf-8")
+</html>"""
 
-        # Tentukan base URL Streamlit (default localhost:8501)
-        _port = os.environ.get("STREAMLIT_SERVER_PORT", "8501")
-        _host = os.environ.get("STREAMLIT_SERVER_ADDRESS", "localhost")
-        _gps_url = f"http://{_host}:{_port}/app/static/../../../gps_tracker_widget.html"
+        # Encode HTML ke base64 dan render via iframe dengan allow="geolocation"
+        import base64
+        gps_b64 = base64.b64encode(gps_html_raw.encode()).decode()
+        iframe_src = f"data:text/html;base64,{gps_b64}"
 
-        # Fallback: serve via components.html dengan Permissions-Policy header trick
-        # (bekerja di sebagian besar deployment termasuk Streamlit Cloud)
-        gps_html_patched = gps_html.replace(
-            '<meta name="viewport"',
-            '<meta http-equiv="Permissions-Policy" content="geolocation=(self)">\n'
-            '<meta name="viewport"',
+        st.markdown(
+            f'<iframe src="{iframe_src}" '
+            f'width="100%" height="700" '
+            f'style="border:none;border-radius:14px;overflow:hidden;" '
+            f'allow="geolocation" '
+            f'sandbox="allow-scripts allow-same-origin allow-forms">'
+            f'</iframe>',
+            unsafe_allow_html=True
         )
-        components.html(gps_html_patched, height=680, scrolling=True)
+
 
         st.markdown("---")
         st.markdown("""
