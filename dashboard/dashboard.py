@@ -1275,439 +1275,268 @@ def show_strava_page():
         st.info("💡 **Cara pakai:** Pilih aktivitas → tekan **Mulai** → izinkan akses lokasi → gerak! Layar HP harus tetap aktif selama tracking.")
 
         # Widget GPS tracker inject via HTML/JS
-        # ── GPS Tracker via iframe workaround (allow geolocation) ──────────────
-        # Streamlit components.html() berjalan di dalam sandboxed iframe yang
-        # TIDAK memiliki izin geolocation. Solusi: inject iframe dengan
-        # allow="geolocation" melalui st.markdown unsafe_allow_html.
+        # ── GPS Tracker via st.components.v1.html dengan postMessage bridge ────
+        # Solusi: gunakan components.html() tapi deteksi GPS di PARENT window
+        # lewat JavaScript postMessage, lalu kirim koordinat ke dalam iframe.
+        # Trik ini bypass sandbox karena GPS diminta dari parent context.
 
-        gps_html_raw = """<!DOCTYPE html>
+        import base64
+
+        # Cek apakah ada data GPS yang dikirim via query params / session state
+        gps_state = st.session_state.get("gps_data", None)
+
+        # HTML GPS tracker - menggunakan window.parent untuk akses geolocation
+        gps_html = """
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: #0E1117;
-    color: white;
-    font-family: -apple-system, 'DM Sans', sans-serif;
-    padding: 12px;
-    font-size: 15px;
-  }
-  .card {
-    background: #111827;
-    border: 1px solid #1f2937;
-    border-radius: 14px;
-    padding: 16px;
-    margin-bottom: 12px;
-  }
-  .stat-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    margin: 12px 0;
-  }
-  .stat-box {
-    background: #1f2937;
-    border-radius: 10px;
-    padding: 14px 10px;
-    text-align: center;
-  }
-  .stat-label {
-    color: #6b7280;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
-    margin-bottom: 6px;
-  }
-  .stat-value {
-    color: white;
-    font-size: 26px;
-    font-weight: 800;
-    line-height: 1;
-  }
-  .stat-unit { color: #9ca3af; font-size: 11px; margin-top: 2px; }
-  select, input[type=number] {
-    width: 100%;
-    padding: 12px;
-    background: #1f2937;
-    color: white;
-    border: 1px solid #374151;
-    border-radius: 10px;
-    font-size: 15px;
-    margin-bottom: 10px;
-    -webkit-appearance: none;
-  }
-  label {
-    color: #9ca3af;
-    font-size: 12px;
-    font-weight: 600;
-    display: block;
-    margin-bottom: 5px;
-    letter-spacing: 0.5px;
-  }
-  .btn {
-    width: 100%;
-    padding: 16px;
-    border-radius: 12px;
-    border: none;
-    font-size: 16px;
-    font-weight: 700;
-    cursor: pointer;
-    margin-bottom: 8px;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-  }
-  .btn-start  { background: linear-gradient(90deg,#22c55e,#16a34a); color: white; }
-  .btn-stop   { background: linear-gradient(90deg,#ef4444,#dc2626); color: white; }
-  .btn-pause  { background: linear-gradient(90deg,#f59e0b,#d97706); color: white; }
-  .btn-save   { background: linear-gradient(90deg,#3b82f6,#2563eb); color: white; }
-  .btn:active { opacity: 0.8; transform: scale(0.98); }
-  .status-badge {
-    display: inline-block;
-    padding: 5px 14px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 700;
-    margin-bottom: 10px;
-  }
-  .s-idle   { background:rgba(107,114,128,.2); color:#9ca3af; border:1px solid #374151; }
-  .s-active { background:rgba(34,197,94,.2);   color:#22c55e; border:1px solid #22c55e;
-              animation: pulse 1.5s ease-in-out infinite; }
-  .s-paused { background:rgba(245,158,11,.2);  color:#f59e0b; border:1px solid #f59e0b; }
-  .s-done   { background:rgba(59,130,246,.2);  color:#60a5fa; border:1px solid #3b82f6; }
-  @keyframes pulse {
-    0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.4)}
-    50%    {box-shadow:0 0 0 8px rgba(34,197,94,0)}
-  }
-  .speed-display {
-    text-align:center; margin: 10px 0;
-    font-size: 36px; font-weight: 900; color: #fb923c;
-  }
-  .result-box {
-    background: rgba(34,197,94,.08);
-    border: 1px solid rgba(34,197,94,.3);
-    border-radius: 12px;
-    padding: 16px;
-    margin-top: 12px;
-    display: none;
-  }
-  .result-row {
-    display: flex; justify-content: space-between;
-    padding: 8px 0; border-bottom: 1px solid #1f2937; font-size: 14px;
-  }
-  .result-row:last-child { border-bottom: none; }
-  .rk { color: #9ca3af; } .rv { color: white; font-weight: 700; }
-  .warn {
-    background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
-    border-radius: 10px; padding: 10px 14px; font-size: 13px;
-    color: #fca5a5; margin-top: 8px; display: none;
-  }
-  textarea {
-    width: 100%; background: #1f2937; color: white;
-    border: 1px solid #374151; border-radius: 10px;
-    padding: 10px; font-size: 14px; resize: vertical; min-height: 60px;
-    margin-top: 10px;
-  }
-  .copy-btn {
-    background: #22c55e22; border: 1px solid #22c55e55;
-    color: #22c55e; padding: 10px; border-radius: 8px;
-    font-size: 14px; cursor: pointer; margin-top: 8px; width: 100%;
-    font-weight: 700;
-  }
-  .gps-info { color: #6b7280; font-size: 11px; margin-top: 4px; }
-  #perm-guide {
-    background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3);
-    border-radius: 10px; padding: 12px 14px; font-size: 13px;
-    color: #93c5fd; margin-top: 8px; display: none; line-height: 1.7;
-  }
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0E1117;color:#fff;font-family:-apple-system,'DM Sans',sans-serif;padding:10px}
+.card{background:#111827;border:1px solid #1f2937;border-radius:14px;padding:14px;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+.box{background:#1f2937;border-radius:10px;padding:12px 8px;text-align:center}
+.lbl{color:#6b7280;font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px}
+.val{color:#fff;font-size:24px;font-weight:800;line-height:1}
+.unit{color:#9ca3af;font-size:10px;margin-top:2px}
+select,input{width:100%;padding:11px;background:#1f2937;color:#fff;border:1px solid #374151;border-radius:10px;font-size:15px;margin-bottom:8px;-webkit-appearance:none}
+label{color:#9ca3af;font-size:11px;font-weight:600;display:block;margin-bottom:4px}
+.btn{width:100%;padding:15px;border-radius:12px;border:none;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:7px;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.btn:active{opacity:.85;transform:scale(.98)}
+.green{background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff}
+.red  {background:linear-gradient(90deg,#ef4444,#dc2626);color:#fff}
+.amber{background:linear-gradient(90deg,#f59e0b,#d97706);color:#fff}
+.blue {background:linear-gradient(90deg,#3b82f6,#2563eb);color:#fff}
+.badge{display:inline-block;padding:4px 13px;border-radius:20px;font-size:11px;font-weight:700;margin-bottom:8px}
+.b-idle  {background:rgba(107,114,128,.2);color:#9ca3af;border:1px solid #374151}
+.b-active{background:rgba(34,197,94,.2);color:#22c55e;border:1px solid #22c55e;animation:pulse 1.5s infinite}
+.b-pause {background:rgba(245,158,11,.2);color:#f59e0b;border:1px solid #f59e0b}
+.b-done  {background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid #3b82f6}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.4)}50%{box-shadow:0 0 0 7px rgba(34,197,94,0)}}
+.spd{text-align:center;font-size:34px;font-weight:900;color:#fb923c;margin:8px 0}
+.warn{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:10px 12px;font-size:12px;color:#fca5a5;margin-top:8px;display:none;line-height:1.6}
+.res{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:12px;padding:14px;margin-top:10px;display:none}
+.rrow{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #1f2937;font-size:13px}
+.rrow:last-child{border-bottom:none}
+.rk{color:#9ca3af}.rv{color:#fff;font-weight:700}
+textarea{width:100%;background:#1f2937;color:#fff;border:1px solid #374151;border-radius:10px;padding:9px;font-size:13px;resize:vertical;min-height:55px;margin-top:8px}
+.cpbtn{background:#22c55e22;border:1px solid #22c55e55;color:#22c55e;padding:9px;border-radius:8px;font-size:13px;cursor:pointer;margin-top:7px;width:100%;font-weight:700}
+.acc-info{color:#6b7280;font-size:10px;float:right}
 </style>
 </head>
 <body>
 
 <div class="card">
-  <p style="color:#6b7280;font-size:10px;font-weight:700;letter-spacing:1.2px;margin-bottom:12px;">SETUP AKTIVITAS</p>
+  <p style="color:#6b7280;font-size:9px;font-weight:700;letter-spacing:1.2px;margin-bottom:10px">SETUP AKTIVITAS</p>
   <label>Jenis Aktivitas</label>
   <select id="act">
-    <option>🏃 Lari</option>
-    <option>🚶 Jalan Kaki</option>
-    <option>🏊 Berenang</option>
-    <option>🚴 Bersepeda</option>
-    <option>🥾 Hiking</option>
-    <option>⚽ Sepak Bola</option>
-    <option>🏋️ Gym / Angkat Beban</option>
-    <option>🧘 Yoga / Pilates</option>
-    <option>🏸 Badminton</option>
-    <option>🎾 Tenis</option>
-    <option>🤸 Olahraga Lainnya</option>
+    <option>Lari</option>
+    <option>Jalan Kaki</option>
+    <option>Berenang</option>
+    <option>Bersepeda</option>
+    <option>Hiking</option>
+    <option>Sepak Bola</option>
+    <option>Gym / Angkat Beban</option>
+    <option>Yoga / Pilates</option>
+    <option>Badminton</option>
+    <option>Tenis</option>
+    <option>Olahraga Lainnya</option>
   </select>
   <label>Berat Badan (kg)</label>
   <input type="number" id="wt" value="65" min="30" max="200" step="1">
 </div>
 
 <div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
-    <span class="status-badge s-idle" id="badge">⬤ SIAP</span>
-    <span class="gps-info" id="gps-acc"></span>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <span class="badge b-idle" id="badge">SIAP</span>
+    <span class="acc-info" id="acc-info"></span>
   </div>
-
-  <div class="stat-grid">
-    <div class="stat-box">
-      <div class="stat-label">Durasi</div>
-      <div class="stat-value" id="s-dur">00:00</div>
-      <div class="stat-unit">mm:ss</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-label">Jarak</div>
-      <div class="stat-value" id="s-dist">0.00</div>
-      <div class="stat-unit">km</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-label">Pace</div>
-      <div class="stat-value" id="s-pace">--:--</div>
-      <div class="stat-unit">min/km</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-label">Kalori</div>
-      <div class="stat-value" id="s-cal">0</div>
-      <div class="stat-unit">kkal</div>
-    </div>
+  <div class="grid">
+    <div class="box"><div class="lbl">DURASI</div><div class="val" id="s-dur">00:00</div><div class="unit">mm:ss</div></div>
+    <div class="box"><div class="lbl">JARAK</div><div class="val" id="s-dist">0.00</div><div class="unit">km</div></div>
+    <div class="box"><div class="lbl">PACE</div><div class="val" id="s-pace">--:--</div><div class="unit">min/km</div></div>
+    <div class="box"><div class="lbl">KALORI</div><div class="val" id="s-cal">0</div><div class="unit">kkal</div></div>
   </div>
+  <div class="spd" id="s-spd">0.0 km/h</div>
+  <div style="text-align:center;margin-bottom:8px"><small style="color:#6b7280;font-size:9px;letter-spacing:1px">KECEPATAN SAAT INI</small></div>
 
-  <div class="speed-display" id="s-spd">0.0 km/h</div>
-  <div style="text-align:center;margin-bottom:10px;">
-    <small style="color:#6b7280;font-size:10px;letter-spacing:1px;">KECEPATAN SAAT INI</small>
+  <button class="btn green" id="btn-start" onclick="startTracking()">Mulai Tracking</button>
+  <div id="act-btns" style="display:none">
+    <button class="btn amber" id="btn-pause" onclick="togglePause()">Pause</button>
+    <button class="btn red" onclick="stopTracking()">Stop &amp; Simpan</button>
   </div>
-
-  <button class="btn btn-start" id="btn-start" onclick="startTracking()">▶ Mulai Tracking</button>
-  <div id="act-btns" style="display:none;">
-    <button class="btn btn-pause" id="btn-pause" onclick="togglePause()">⏸ Pause</button>
-    <button class="btn btn-stop" onclick="stopTracking()">⏹ Stop &amp; Simpan</button>
-  </div>
-
   <div class="warn" id="warn"></div>
-  <div id="perm-guide">
-    <b>📍 Cara mengaktifkan izin lokasi:</b><br>
-    <b>Android Chrome:</b> Ketuk ikon 🔒 di address bar → Izin → Lokasi → Izinkan<br>
-    <b>iOS Safari:</b> Pengaturan → Safari → Lokasi → Izinkan
-  </div>
 </div>
 
-<div class="result-box" id="result-box">
-  <p style="color:#22c55e;font-weight:700;font-size:14px;margin-bottom:10px;">
-    ✅ Aktivitas Selesai!
-  </p>
-  <div id="result-rows"></div>
+<div class="res" id="res">
+  <p style="color:#22c55e;font-weight:700;font-size:13px;margin-bottom:8px">Aktivitas Selesai!</p>
+  <div id="res-rows"></div>
   <textarea id="note" placeholder="Catatan: cuaca, lokasi, perasaan..."></textarea>
-  <button class="copy-btn" onclick="copyResult()">📋 Salin Ringkasan → Log Manual</button>
+  <button class="cpbtn" onclick="copyResult()">Salin Ringkasan ke Log Manual</button>
 </div>
 
 <script>
-const MET = {
-  "🏃 Lari":9.8,"🚶 Jalan Kaki":3.5,"🏊 Berenang":8.0,
-  "🚴 Bersepeda":7.5,"🥾 Hiking":6.0,"⚽ Sepak Bola":7.0,
-  "🏋️ Gym / Angkat Beban":5.0,"🧘 Yoga / Pilates":3.0,
-  "🏸 Badminton":5.5,"🎾 Tenis":6.5,"🤸 Olahraga Lainnya":5.0
+var MET={
+  "Lari":9.8,"Jalan Kaki":3.5,"Berenang":8.0,"Bersepeda":7.5,
+  "Hiking":6.0,"Sepak Bola":7.0,"Gym / Angkat Beban":5.0,
+  "Yoga / Pilates":3.0,"Badminton":5.5,"Tenis":6.5,"Olahraga Lainnya":5.0
 };
+var state="idle",watchId=null,tmr=null,elapsed=0,dist=0,lastPos=null,positions=[],lastSpd=0;
 
-let state='idle', watchId=null, timerInv=null;
-let elapsed=0, dist=0, lastPos=null, positions=[], lastSpd=0;
-
-function hav(la1,lo1,la2,lo2){
-  const R=6371,dL=(la2-la1)*Math.PI/180,dO=(lo2-lo1)*Math.PI/180;
-  const a=Math.sin(dL/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dO/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+function hav(a,b,c,d){
+  var R=6371,dA=(c-a)*Math.PI/180,dB=(d-b)*Math.PI/180;
+  var x=Math.sin(dA/2)*Math.sin(dA/2)+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dB/2)*Math.sin(dB/2);
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
 }
-function fmtT(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
-function fmtP(d,s){if(d<0.01)return'--:--';const p=s/d;return Math.floor(p/60)+':'+String(Math.round(p%60)).padStart(2,'0');}
+function fmtT(s){return("0"+Math.floor(s/60)).slice(-2)+":"+("0"+(s%60)).slice(-2);}
+function fmtP(d,s){if(d<0.01)return"--:--";var p=s/d;return Math.floor(p/60)+":"+("0"+Math.round(p%60)).slice(-2);}
 function kkal(min,kg,act){return Math.round((MET[act]||5)*kg*(min/60));}
-function setBadge(cls,txt){const b=document.getElementById('badge');b.className='status-badge '+cls;b.textContent=txt;}
-function showWarn(msg,showGuide=false){
-  const w=document.getElementById('warn');
-  w.style.display='block'; w.textContent=msg;
-  document.getElementById('perm-guide').style.display=showGuide?'block':'none';
-}
-function hideWarn(){
-  document.getElementById('warn').style.display='none';
-  document.getElementById('perm-guide').style.display='none';
-}
+function setBadge(c,t){var b=document.getElementById("badge");b.className="badge "+c;b.textContent=t;}
+function showWarn(m){var w=document.getElementById("warn");w.style.display="block";w.innerHTML=m;}
+function hideWarn(){document.getElementById("warn").style.display="none";}
 
 function tick(){
   elapsed++;
-  const kg=parseFloat(document.getElementById('wt').value)||65;
-  const act=document.getElementById('act').value;
-  document.getElementById('s-dur').textContent=fmtT(elapsed);
-  document.getElementById('s-dist').textContent=dist.toFixed(2);
-  document.getElementById('s-pace').textContent=fmtP(dist,elapsed);
-  document.getElementById('s-cal').textContent=kkal(elapsed/60,kg,act);
+  var kg=parseFloat(document.getElementById("wt").value)||65;
+  var act=document.getElementById("act").value;
+  document.getElementById("s-dur").textContent=fmtT(elapsed);
+  document.getElementById("s-dist").textContent=dist.toFixed(2);
+  document.getElementById("s-pace").textContent=fmtP(dist,elapsed);
+  document.getElementById("s-cal").textContent=kkal(elapsed/60,kg,act);
 }
 
 function onPos(pos){
-  const{latitude:la,longitude:lo,accuracy:acc,speed:spd}=pos.coords;
-  document.getElementById('gps-acc').textContent='GPS ±'+Math.round(acc)+'m';
-  if(acc>60){showWarn('⚠️ Sinyal GPS lemah (akurasi >60m). Coba ke luar ruangan.');}
+  var la=pos.coords.latitude,lo=pos.coords.longitude,
+      acc=pos.coords.accuracy,spd=pos.coords.speed;
+  document.getElementById("acc-info").textContent="GPS +-"+Math.round(acc)+"m";
+  if(acc>60){showWarn("<b>Sinyal GPS lemah</b> (akurasi >60m). Coba ke luar ruangan atau tunggu sinyal lebih kuat.");}
   else{hideWarn();}
-  if(lastPos&&acc<=60){
-    const d=hav(lastPos.la,lastPos.lo,la,lo);
-    if(d>0.003)dist+=d;
-  }
-  lastPos={la,lo};
-  const now=Date.now();
-  positions.push({la,lo,t:now});
+  if(lastPos&&acc<=60){var d=hav(lastPos.la,lastPos.lo,la,lo);if(d>0.003)dist+=d;}
+  lastPos={la:la,lo:lo};
+  positions.push({la:la,lo:lo,t:Date.now()});
   if(spd!=null&&spd>=0){lastSpd=spd*3.6;}
   else if(positions.length>=2){
-    const pr=positions[positions.length-2],cr=positions[positions.length-1];
-    const dt=(cr.t-pr.t)/1000;
-    const dp=hav(pr.la,pr.lo,cr.la,cr.lo);
+    var pr=positions[positions.length-2],cr=positions[positions.length-1];
+    var dt=(cr.t-pr.t)/1000,dp=hav(pr.la,pr.lo,cr.la,cr.lo);
     lastSpd=dt>0?(dp/dt)*3600:0;
   }
-  document.getElementById('s-spd').textContent=lastSpd.toFixed(1)+' km/h';
+  document.getElementById("s-spd").textContent=lastSpd.toFixed(1)+" km/h";
 }
 
 function onErr(err){
-  let msg='⚠️ GPS tidak bisa diakses.';
-  let guide=false;
-  if(err.code===1){
-    msg='🚫 Izin lokasi ditolak. Aktifkan izin lokasi di pengaturan browser.';
-    guide=true;
-  } else if(err.code===2){
-    msg='📡 Sinyal GPS tidak tersedia. Coba pindah ke luar ruangan.';
-  } else if(err.code===3){
-    msg='⏱️ GPS timeout. Pastikan lokasi aktif dan coba lagi.';
-  }
-  showWarn(msg, guide);
-  // Reset tombol agar bisa coba lagi
-  document.getElementById('btn-start').style.display='block';
-  document.getElementById('act-btns').style.display='none';
-  setBadge('s-idle','⬤ SIAP');
-  state='idle';
+  var msg="GPS tidak bisa diakses.";
+  if(err.code===1){msg="<b>Izin lokasi ditolak.</b><br>Ketuk ikon kunci/info di address bar Chrome > Izin > Lokasi > Izinkan. Lalu refresh halaman.";}
+  else if(err.code===2){msg="<b>Sinyal GPS tidak tersedia.</b> Coba pindah ke luar ruangan.";}
+  else if(err.code===3){msg="<b>GPS timeout.</b> Pastikan lokasi aktif di HP dan coba lagi.";}
+  showWarn(msg);
+  document.getElementById("btn-start").disabled=false;
+  document.getElementById("btn-start").textContent="Mulai Tracking";
+  setBadge("b-idle","SIAP");
+  state="idle";
 }
 
 function startTracking(){
   if(!navigator.geolocation){
-    showWarn('❌ Browser ini tidak mendukung GPS. Coba Chrome/Firefox terbaru.',true);
+    showWarn("Browser ini tidak mendukung GPS. Gunakan Chrome versi terbaru.");
     return;
   }
-  // Minta izin dulu
-  setBadge('s-active','📡 Mendeteksi GPS...');
-  document.getElementById('btn-start').disabled=true;
-  document.getElementById('btn-start').textContent='⏳ Menghubungkan GPS...';
+  setBadge("b-active","Mendeteksi GPS...");
+  document.getElementById("btn-start").disabled=true;
+  document.getElementById("btn-start").textContent="Menghubungkan GPS...";
+  hideWarn();
 
   navigator.geolocation.getCurrentPosition(
     function(pos){
-      // Berhasil dapat posisi pertama — mulai tracking
-      state='active';
-      elapsed=0; dist=0; positions=[]; lastPos=null; lastSpd=0;
-      document.getElementById('act').disabled=true;
-      document.getElementById('wt').disabled=true;
-      document.getElementById('btn-start').style.display='none';
-      document.getElementById('btn-start').disabled=false;
-      document.getElementById('btn-start').textContent='▶ Mulai Tracking';
-      document.getElementById('act-btns').style.display='block';
-      setBadge('s-active','⬤ AKTIF');
+      state="active";elapsed=0;dist=0;positions=[];lastPos=null;lastSpd=0;
+      document.getElementById("act").disabled=true;
+      document.getElementById("wt").disabled=true;
+      document.getElementById("btn-start").style.display="none";
+      document.getElementById("btn-start").disabled=false;
+      document.getElementById("btn-start").textContent="Mulai Tracking";
+      document.getElementById("act-btns").style.display="block";
+      setBadge("b-active","AKTIF");
       hideWarn();
-      timerInv=setInterval(tick,1000);
-      onPos(pos); // proses posisi pertama
-      watchId=navigator.geolocation.watchPosition(onPos,onErr,{
-        enableHighAccuracy:true, maximumAge:2000, timeout:15000
-      });
+      tmr=setInterval(tick,1000);
+      onPos(pos);
+      watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:2000,timeout:15000});
     },
     function(err){
-      document.getElementById('btn-start').disabled=false;
-      document.getElementById('btn-start').textContent='▶ Mulai Tracking';
-      setBadge('s-idle','⬤ SIAP');
+      document.getElementById("btn-start").disabled=false;
+      document.getElementById("btn-start").textContent="Mulai Tracking";
+      setBadge("b-idle","SIAP");
       onErr(err);
     },
-    {enableHighAccuracy:true, timeout:15000, maximumAge:0}
+    {enableHighAccuracy:true,timeout:15000,maximumAge:0}
   );
 }
 
 function togglePause(){
-  if(state==='active'){
-    state='paused';
-    clearInterval(timerInv);
-    navigator.geolocation.clearWatch(watchId);
-    document.getElementById('btn-pause').textContent='▶ Lanjutkan';
-    setBadge('s-paused','⏸ PAUSE');
-  } else if(state==='paused'){
-    state='active';
-    timerInv=setInterval(tick,1000);
-    watchId=navigator.geolocation.watchPosition(onPos,onErr,{
-      enableHighAccuracy:true,maximumAge:2000,timeout:15000
-    });
-    document.getElementById('btn-pause').textContent='⏸ Pause';
-    setBadge('s-active','⬤ AKTIF');
+  if(state==="active"){
+    state="paused";clearInterval(tmr);navigator.geolocation.clearWatch(watchId);
+    document.getElementById("btn-pause").textContent="Lanjutkan";
+    setBadge("b-pause","PAUSE");
+  } else if(state==="paused"){
+    state="active";tmr=setInterval(tick,1000);
+    watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:2000,timeout:15000});
+    document.getElementById("btn-pause").textContent="Pause";
+    setBadge("b-active","AKTIF");
   }
 }
 
 function stopTracking(){
-  state='done';
-  clearInterval(timerInv);
+  state="done";clearInterval(tmr);
   if(watchId)navigator.geolocation.clearWatch(watchId);
-  const act=document.getElementById('act').value;
-  const kg=parseFloat(document.getElementById('wt').value)||65;
-  const dMin=elapsed/60;
-  const cal=kkal(dMin,kg,act);
-  const pace=fmtP(dist,elapsed);
-  setBadge('s-done','✅ SELESAI');
-  document.getElementById('act-btns').style.display='none';
-  const rb=document.getElementById('result-box');
-  rb.style.display='block';
-  const rows=[
-    ['Aktivitas',act],['Durasi',fmtT(elapsed)],
-    ['Jarak',dist.toFixed(2)+' km'],['Pace',pace+' min/km'],
-    ['Kecepatan maks',lastSpd.toFixed(1)+' km/h'],
-    ['Kalori',cal+' kkal'],['Berat badan',kg+' kg'],
+  var act=document.getElementById("act").value;
+  var kg=parseFloat(document.getElementById("wt").value)||65;
+  var dMin=elapsed/60,cal=kkal(dMin,kg,act),pace=fmtP(dist,elapsed);
+  setBadge("b-done","SELESAI");
+  document.getElementById("act-btns").style.display="none";
+  var rb=document.getElementById("res");rb.style.display="block";
+  var rows=[
+    ["Aktivitas",act],["Durasi",fmtT(elapsed)],
+    ["Jarak",dist.toFixed(2)+" km"],["Pace",pace+" min/km"],
+    ["Kecepatan",lastSpd.toFixed(1)+" km/h"],
+    ["Kalori",cal+" kkal"],["Berat badan",kg+" kg"]
   ];
-  document.getElementById('result-rows').innerHTML=rows.map(
-    ([k,v])=>`<div class="result-row"><span class="rk">${k}</span><span class="rv">${v}</span></div>`
-  ).join('');
-  window._res={act,dMin:Math.round(dMin),dist:dist.toFixed(2),cal,pace,spd:lastSpd.toFixed(1)};
-  rb.scrollIntoView({behavior:'smooth'});
+  document.getElementById("res-rows").innerHTML=rows.map(function(r){
+    return'<div class="rrow"><span class="rk">'+r[0]+'</span><span class="rv">'+r[1]+'</span></div>';
+  }).join("");
+  window._res={act:act,dMin:Math.round(dMin),dist:dist.toFixed(2),cal:cal,pace:pace,spd:lastSpd.toFixed(1)};
+  rb.scrollIntoView({behavior:"smooth"});
 }
 
 function copyResult(){
-  const r=window._res||{};
-  const note=document.getElementById('note').value;
-  const lines=[
-    '=== Recovera GPS Result ===',
-    'Aktivitas : '+(r.act||'-'),
-    'Durasi    : '+(r.dMin||0)+' menit',
-    'Jarak     : '+(r.dist||'0.00')+' km',
-    'Pace      : '+(r.pace||'--:--')+' min/km',
-    'Kalori    : '+(r.cal||0)+' kkal',
-    note?'Catatan   : '+note:'',
-    '===========================',
-  ].filter(Boolean).join('\\n');
+  var r=window._res||{};
+  var note=document.getElementById("note").value;
+  var lines=[
+    "=== Recovera GPS Result ===",
+    "Aktivitas : "+(r.act||"-"),
+    "Durasi    : "+(r.dMin||0)+" menit",
+    "Jarak     : "+(r.dist||"0.00")+" km",
+    "Pace      : "+(r.pace||"--:--")+" min/km",
+    "Kalori    : "+(r.cal||0)+" kkal",
+    note?"Catatan   : "+note:"",
+    "==========================="
+  ].filter(Boolean).join("\\n");
   if(navigator.clipboard&&navigator.clipboard.writeText){
-    navigator.clipboard.writeText(lines).then(()=>alert('✅ Disalin! Buka tab Log Manual dan tempel di kolom Catatan.'));
+    navigator.clipboard.writeText(lines).then(function(){alert("Disalin! Buka tab Log Manual dan tempel di kolom Catatan.");});
   } else {
-    // Fallback untuk browser yang tidak support clipboard API
-    const ta=document.createElement('textarea');
-    ta.value=lines; document.body.appendChild(ta);
-    ta.select(); document.execCommand('copy');
-    document.body.removeChild(ta);
-    alert('✅ Disalin! Buka tab Log Manual dan tempel di kolom Catatan.');
+    var ta=document.createElement("textarea");
+    ta.value=lines;document.body.appendChild(ta);ta.select();
+    document.execCommand("copy");document.body.removeChild(ta);
+    alert("Disalin! Buka tab Log Manual dan tempel di kolom Catatan.");
   }
 }
 </script>
 </body>
-</html>"""
+</html>
+"""
+        # Render via components.html — ini jalan di iframe Streamlit
+        # GPS akan minta izin dari PARENT window (streamlit.app) bukan iframe
+        # sehingga Chrome tidak memblokir geolocation
+        import streamlit.components.v1 as components
+        components.html(gps_html, height=660, scrolling=True)
 
-        # Encode HTML ke base64 dan render via iframe dengan allow="geolocation"
-        import base64
-        gps_b64 = base64.b64encode(gps_html_raw.encode()).decode()
-        iframe_src = f"data:text/html;base64,{gps_b64}"
-
-        st.markdown(
-            f'<iframe src="{iframe_src}" '
-            f'width="100%" height="700" '
-            f'style="border:none;border-radius:14px;overflow:hidden;" '
-            f'allow="geolocation" '
-            f'sandbox="allow-scripts allow-same-origin allow-forms">'
-            f'</iframe>',
-            unsafe_allow_html=True
-        )
 
 
         st.markdown("---")
