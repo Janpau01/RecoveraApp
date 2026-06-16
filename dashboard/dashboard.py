@@ -39,10 +39,6 @@ MENU_ITEMS = [
     "Guide",
 ]
 
-# ─────────────────────────────────────────────
-# STRAVA CONSTANTS
-# ─────────────────────────────────────────────
-
 ACTIVITY_TYPES = [
     "🏃 Lari",
     "🚶 Jalan Kaki",
@@ -102,12 +98,10 @@ def init_db():
             onboarded INTEGER DEFAULT 0
         )
     """)
-    # Migrate: add onboarded column if not exists
     try:
         c.execute("ALTER TABLE users ADD COLUMN onboarded INTEGER DEFAULT 0")
     except Exception:
         pass
-    # ── [FIX #3] Migrate: add salt column for PBKDF2 ──
     try:
         c.execute("ALTER TABLE users ADD COLUMN salt TEXT DEFAULT NULL")
     except Exception:
@@ -116,21 +110,17 @@ def init_db():
     conn.close()
 
 
-# ── [FIX #3] Password hashing dengan PBKDF2 + salt ──────────────────────────
-
 def hash_password_pbkdf2(password: str, salt: str) -> str:
-    """Hash password menggunakan PBKDF2-HMAC-SHA256 dengan salt unik per user."""
     dk = hashlib.pbkdf2_hmac(
         "sha256",
         password.encode("utf-8"),
         salt.encode("utf-8"),
-        iterations=260_000,  # OWASP 2023 recommendation
+        iterations=260_000,
     )
     return dk.hex()
 
 
 def hash_password_legacy(password: str) -> str:
-    """SHA-256 polos — hanya untuk backward-compat login user lama."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 
@@ -138,7 +128,6 @@ def register_user(username, email, password, full_name=""):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     try:
-        # Generate salt unik untuk setiap user baru
         salt = secrets.token_hex(32)
         pw_hash = hash_password_pbkdf2(password, salt)
         c.execute(
@@ -169,49 +158,37 @@ def login_user(username_or_email, password):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     val = username_or_email.strip().lower()
-
-    # Ambil data user terlebih dahulu (tanpa langsung filter password)
     c.execute(
         "SELECT id, username, full_name, onboarded, password_hash, salt "
         "FROM users WHERE username=? OR email=?",
         (val, val),
     )
     row = c.fetchone()
-
     if not row:
         conn.close()
         return False, None
-
     user_id, username, full_name, onboarded, stored_hash, salt = row
-
-    # ── Verifikasi password ──────────────────────────────────────────────────
     authenticated = False
-
     if salt:
-        # User baru — verifikasi dengan PBKDF2
         if hash_password_pbkdf2(password, salt) == stored_hash:
             authenticated = True
     else:
-        # User lama — verifikasi dengan SHA-256 lama (backward compat)
         if hash_password_legacy(password) == stored_hash:
             authenticated = True
-            # ── [FIX #3] Auto-upgrade hash ke PBKDF2 setelah login berhasil ──
-            new_salt   = secrets.token_hex(32)
-            new_hash   = hash_password_pbkdf2(password, new_salt)
+            new_salt = secrets.token_hex(32)
+            new_hash = hash_password_pbkdf2(password, new_salt)
             c.execute(
                 "UPDATE users SET password_hash=?, salt=? WHERE id=?",
                 (new_hash, new_salt, user_id),
             )
             conn.commit()
-
     conn.close()
-
     if authenticated:
         return True, {
-            "id":         user_id,
-            "username":   username,
-            "full_name":  full_name,
-            "onboarded":  onboarded,
+            "id":        user_id,
+            "username":  username,
+            "full_name": full_name,
+            "onboarded": onboarded,
         }
     return False, None
 
@@ -354,8 +331,6 @@ input[type="number"] {
     margin-right: 6px;
     margin-top: 6px;
 }
-
-/* ── Onboarding Modal ── */
 .onboarding-overlay {
     position: fixed;
     top: 0; left: 0;
@@ -375,8 +350,6 @@ input[type="number"] {
     width: 90%;
     text-align: center;
 }
-
-/* ── AUTH STYLES ── */
 .logo-ring {
     width: 110px; height: 110px;
     border-radius: 50%;
@@ -405,8 +378,6 @@ input[type="number"] {
     font-size: 13px; font-weight: 600; color: #9ca3af;
     letter-spacing: 0.5px; margin-bottom: 4px; display: block;
 }
-
-/* ── Warning badge ── */
 .validation-warning {
     background: rgba(245,158,11,0.12);
     border: 1px solid rgba(245,158,11,0.4);
@@ -427,8 +398,6 @@ input[type="number"] {
     color: #fca5a5;
     line-height: 1.6;
 }
-
-/* ── [FIX #8] Overwrite confirm box ── */
 .overwrite-box {
     background: rgba(245,158,11,0.10);
     border: 2px solid rgba(245,158,11,0.5);
@@ -450,7 +419,6 @@ input[type="number"] {
     line-height: 1.8;
     margin-bottom: 12px;
 }
-
 @media (max-width: 768px) {
     [data-testid="column"] {
         width: 100% !important;
@@ -516,7 +484,6 @@ defaults = {
     "user":                   None,
     "auth_screen":            "welcome",
     "show_onboarding":        False,
-    # [FIX #8] flag konfirmasi overwrite
     "show_overwrite_confirm": False,
     "pending_daily_data":     None,
     "strava_history":         [],
@@ -682,10 +649,7 @@ def require_wellness_check():
         st.stop()
 
 
-# ── [FIX #6] Cek apakah face_result masih valid untuk hari ini ───────────────
-
 def is_face_result_today() -> bool:
-    """Return True jika face_result ada DAN di-capture hari ini."""
     fr = st.session_state.get("face_result")
     if not fr:
         return False
@@ -699,10 +663,7 @@ def is_face_result_today() -> bool:
         return False
 
 
-# ── [FIX #8] Cek apakah wellness_result sudah ada untuk hari ini ─────────────
-
 def has_wellness_today() -> bool:
-    """Return True jika sudah ada wellness_result dari hari ini."""
     wr = st.session_state.get("wellness_result")
     if not wr:
         return False
@@ -715,13 +676,11 @@ def has_wellness_today() -> bool:
     except Exception:
         return False
 
-
 # ─────────────────────────────────────────────
 # DAILY CHECK VALIDATION HELPERS
 # ─────────────────────────────────────────────
 
 def get_yesterday_data():
-    """Ambil data hari sebelumnya dari history."""
     h = st.session_state.progress_history
     if not h:
         return None
@@ -738,14 +697,9 @@ def get_yesterday_data():
 
 
 def validate_daily_input(screen_time, sleep_hours, stress_level, social_media, exercise, productivity):
-    """
-    Validasi kontekstual input Daily Check.
-    Returns list of (level, message) — level: 'extreme' | 'warning'
-    """
     warnings = []
     yesterday = get_yesterday_data()
 
-    # --- Batas Ekstrem ---
     if screen_time > 20:
         warnings.append(("extreme", f"⛔ Screen time {screen_time} jam/hari sangat tidak realistis (melebihi waktu terjaga normal). Periksa kembali input Anda."))
     if sleep_hours < 1 and sleep_hours > 0:
@@ -757,7 +711,6 @@ def validate_daily_input(screen_time, sleep_hours, stress_level, social_media, e
     if exercise > 240:
         warnings.append(("extreme", f"⛔ Durasi olahraga {exercise} menit (>4 jam) sangat tidak umum. Periksa kembali."))
 
-    # --- Perbandingan dengan hari sebelumnya ---
     if yesterday:
         try:
             prev_screen = float(yesterday.get("Screen Time", 0) or 0)
@@ -780,7 +733,6 @@ def validate_daily_input(screen_time, sleep_hours, stress_level, social_media, e
         warnings.append(("warning", "⚠️ Screen time sangat tinggi sekaligus tidur sangat lama — kombinasi ini tidak umum. Periksa kembali."))
 
     return warnings
-
 
 # ─────────────────────────────────────────────
 # JOURNEY ANALYSIS HELPERS
@@ -823,7 +775,6 @@ def predict_tomorrow_fatigue(history_df):
         return round(min(max(pred, 5), 95), 1)
     except Exception:
         return None
-
 
 # ─────────────────────────────────────────────
 # ADAPTIVE RECOVERY — STREAK ESCALATION
@@ -874,13 +825,8 @@ def get_escalated_recovery_plan(challenges_by_cat, bad_streak):
     return escalated, level
 
 
-# ─────────────────────────────────────────────
-# DOWNLOAD CSV HELPER
-# ─────────────────────────────────────────────
-
 def generate_csv_download(history_df):
     return history_df.to_csv(index=False).encode("utf-8")
-
 
 # ─────────────────────────────────────────────
 # MEDIAPIPE ANALYSIS
@@ -1041,8 +987,6 @@ def recovery_plan_tabs(challenges_by_cat, prefix):
             if pct == 100:
                 st.success("🎉 Semua challenge hari ini selesai! Luar biasa!")
 
-
-
 # ─────────────────────────────────────────────
 # STRAVA HELPER FUNCTIONS
 # ─────────────────────────────────────────────
@@ -1081,13 +1025,11 @@ def load_strava_history() -> pd.DataFrame:
 
 
 def estimate_calories(activity_type: str, duration_min: float, weight_kg: float = 65.0) -> int:
-    """Estimasi kalori pakai formula MET: Kalori = MET × berat_kg × (durasi / 60)"""
     met = ACTIVITY_MET.get(activity_type, 5.0)
     return int(met * weight_kg * (duration_min / 60))
 
 
 def get_todays_exercise_from_strava() -> int:
-    """Ambil total menit olahraga hari ini dari strava — dipakai sebagai default di Daily Check."""
     df = load_strava_history()
     if df.empty or "timestamp" not in df.columns:
         return 30
@@ -1180,17 +1122,8 @@ def get_best_week(df: pd.DataFrame) -> tuple:
     except Exception:
         return None, 0
 
-
-# ─────────────────────────────────────────────
-# PAGE: STRAVA (GPS TRACKER)
-# ─────────────────────────────────────────────
-
-import streamlit.components.v1 as components
-
 # ═══════════════════════════════════════════════════════════════════
-# PATCH: Ganti fungsi show_strava_page() dengan versi GPS tracking
-# Cara pakai: copy isi fungsi show_strava_page() di bawah ini
-# ke dalam dashboard.py, timpa fungsi show_strava_page() yang lama.
+# PAGE: STRAVA — GPS TRACKER (Samsung Health Style)
 # ═══════════════════════════════════════════════════════════════════
 
 import streamlit.components.v1 as components
@@ -1218,7 +1151,6 @@ def show_strava_page():
     strava_df = load_strava_history()
     streak    = get_activity_streak(strava_df)
 
-    # ── Banner koneksi ke Daily Check ────────────────────────────────────────
     if not strava_df.empty:
         todays_min = get_todays_exercise_from_strava()
         try:
@@ -1240,7 +1172,6 @@ def show_strava_page():
             </div>
             """, unsafe_allow_html=True)
 
-    # ── Quick Stats Bar ───────────────────────────────────────────────────────
     if not strava_df.empty:
         weekly_stats = get_weekly_strava_stats(strava_df)
         qs1, qs2, qs3, qs4 = st.columns(4)
@@ -1262,118 +1193,278 @@ def show_strava_page():
             st.metric("Jarak Minggu Ini", f"{dist_this:.1f} km" if dist_this else "— km")
         st.markdown("---")
 
-    # ── Tabs ─────────────────────────────────────────────────────────────────
     tab_gps, tab_log, tab_recap, tab_history = st.tabs([
         "🛰️ GPS Tracker", "➕ Log Manual", "📊 Recap Mingguan", "📋 Riwayat"
     ])
 
     # ══════════════════════════════════════════════════════
-    # TAB 1: GPS TRACKER (BARU)
+    # TAB 1: GPS TRACKER — Samsung Health Style
     # ══════════════════════════════════════════════════════
     with tab_gps:
         st.markdown("#### 🛰️ Live GPS Activity Tracker")
         st.info("💡 **Cara pakai:** Pilih aktivitas → tekan **Mulai** → izinkan akses lokasi → gerak! Layar HP harus tetap aktif selama tracking.")
 
-        # Widget GPS tracker inject via HTML/JS
-        # ── GPS Tracker via st.components.v1.html dengan postMessage bridge ────
-        # Solusi: gunakan components.html() tapi deteksi GPS di PARENT window
-        # lewat JavaScript postMessage, lalu kirim koordinat ke dalam iframe.
-        # Trik ini bypass sandbox karena GPS diminta dari parent context.
-
-        import base64
-
-        # Cek apakah ada data GPS yang dikirim via query params / session state
-        gps_state = st.session_state.get("gps_data", None)
-
-        # HTML GPS tracker - menggunakan window.parent untuk akses geolocation
         gps_html = """
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0E1117;color:#fff;font-family:-apple-system,'DM Sans',sans-serif;padding:10px}
-.card{background:#111827;border:1px solid #1f2937;border-radius:14px;padding:14px;margin-bottom:10px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
-.box{background:#1f2937;border-radius:10px;padding:12px 8px;text-align:center}
-.lbl{color:#6b7280;font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px}
-.val{color:#fff;font-size:24px;font-weight:800;line-height:1}
-.unit{color:#9ca3af;font-size:10px;margin-top:2px}
-select,input{width:100%;padding:11px;background:#1f2937;color:#fff;border:1px solid #374151;border-radius:10px;font-size:15px;margin-bottom:8px;-webkit-appearance:none}
-label{color:#9ca3af;font-size:11px;font-weight:600;display:block;margin-bottom:4px}
-.btn{width:100%;padding:15px;border-radius:12px;border:none;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:7px;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
-.btn:active{opacity:.85;transform:scale(.98)}
-.green{background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff}
-.red  {background:linear-gradient(90deg,#ef4444,#dc2626);color:#fff}
-.amber{background:linear-gradient(90deg,#f59e0b,#d97706);color:#fff}
-.blue {background:linear-gradient(90deg,#3b82f6,#2563eb);color:#fff}
-.badge{display:inline-block;padding:4px 13px;border-radius:20px;font-size:11px;font-weight:700;margin-bottom:8px}
-.b-idle  {background:rgba(107,114,128,.2);color:#9ca3af;border:1px solid #374151}
-.b-active{background:rgba(34,197,94,.2);color:#22c55e;border:1px solid #22c55e;animation:pulse 1.5s infinite}
-.b-pause {background:rgba(245,158,11,.2);color:#f59e0b;border:1px solid #f59e0b}
-.b-done  {background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid #3b82f6}
-@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.4)}50%{box-shadow:0 0 0 7px rgba(34,197,94,0)}}
-.spd{text-align:center;font-size:34px;font-weight:900;color:#fb923c;margin:8px 0}
-.warn{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:10px 12px;font-size:12px;color:#fca5a5;margin-top:8px;display:none;line-height:1.6}
-.res{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:12px;padding:14px;margin-top:10px;display:none}
-.rrow{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #1f2937;font-size:13px}
-.rrow:last-child{border-bottom:none}
-.rk{color:#9ca3af}.rv{color:#fff;font-weight:700}
-textarea{width:100%;background:#1f2937;color:#fff;border:1px solid #374151;border-radius:10px;padding:9px;font-size:13px;resize:vertical;min-height:55px;margin-top:8px}
-.cpbtn{background:#22c55e22;border:1px solid #22c55e55;color:#22c55e;padding:9px;border-radius:8px;font-size:13px;cursor:pointer;margin-top:7px;width:100%;font-weight:700}
-.acc-info{color:#6b7280;font-size:10px;float:right}
+body{
+  background:#0A0A0A;
+  color:#fff;
+  font-family:-apple-system,'SF Pro Display',sans-serif;
+  min-height:100vh;
+  padding:0;
+}
+.top-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 18px 10px;border-bottom:1px solid #1a1a1a;
+}
+.top-bar .title{font-size:18px;font-weight:700;color:#fff;letter-spacing:0.3px;}
+.target-badge{
+  background:#1a1a1a;border-radius:20px;padding:5px 13px;
+  font-size:12px;color:#888;display:flex;align-items:center;gap:5px;
+}
+.distance-card{
+  background:#141414;margin:10px 12px 0;border-radius:18px;
+  padding:26px 20px 22px;text-align:center;border:1px solid #1e1e1e;
+}
+.dist-label{
+  font-size:13px;color:#666;letter-spacing:1.5px;
+  text-transform:uppercase;margin-bottom:8px;font-weight:500;
+}
+.dist-value{
+  font-size:72px;font-weight:800;color:#fff;
+  line-height:1;letter-spacing:-3px;font-variant-numeric:tabular-nums;
+}
+.dist-unit{font-size:26px;color:#999;font-weight:400;margin-left:6px;}
+.dist-sub{
+  margin-top:10px;font-size:12px;color:#555;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.dist-sub .dot{width:6px;height:6px;border-radius:50%;background:#555;display:inline-block;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+.metrics-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 12px 0;
+}
+.metric-card{
+  background:#141414;border-radius:18px;padding:18px 16px 16px;
+  border:1px solid #1e1e1e;position:relative;overflow:hidden;
+}
+.metric-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;
+  height:3px;border-radius:18px 18px 0 0;
+}
+.metric-card.card-dur::before{background:#4f8fff;}
+.metric-card.card-pace::before{background:#ff6b6b;}
+.metric-card.card-spd::before{background:#fb923c;}
+.metric-card.card-cal::before{background:#a78bfa;}
+.metric-lbl{
+  font-size:11px;color:#666;letter-spacing:1.2px;
+  text-transform:uppercase;font-weight:600;margin-bottom:10px;
+}
+.metric-val{
+  font-size:36px;font-weight:800;color:#fff;
+  line-height:1;letter-spacing:-1px;font-variant-numeric:tabular-nums;
+}
+.metric-val.smaller{font-size:28px;}
+.metric-unit{font-size:13px;color:#666;margin-top:4px;font-weight:400;}
+.speed-row{
+  margin:8px 12px 0;background:#141414;border-radius:18px;
+  padding:14px 20px;display:flex;align-items:center;
+  justify-content:space-between;border:1px solid #1e1e1e;
+}
+.speed-left .lbl{font-size:11px;color:#666;letter-spacing:1.2px;text-transform:uppercase;font-weight:600;}
+.speed-left .val{font-size:28px;font-weight:800;color:#fb923c;margin-top:4px;font-variant-numeric:tabular-nums;}
+.speed-right{
+  background:#1e1e1e;border-radius:30px;padding:6px 14px;
+  display:flex;align-items:center;gap:8px;
+}
+.spd-dot{width:8px;height:8px;border-radius:50%;background:#555;transition:background .3s;}
+.spd-dot.active{background:#fb923c;animation:blink 1s infinite;}
+.acc-text{font-size:11px;color:#555;font-weight:600;}
+.status-row{display:flex;justify-content:center;margin:10px 0 6px;}
+.status-badge{
+  padding:6px 18px;border-radius:30px;font-size:12px;font-weight:700;
+  letter-spacing:0.8px;text-transform:uppercase;border:1px solid #333;color:#666;
+}
+.status-badge.idle{color:#666;border-color:#333;}
+.status-badge.active{color:#22c55e;border-color:#22c55e44;background:#22c55e11;animation:pulse-b 1.5s infinite;}
+.status-badge.paused{color:#f59e0b;border-color:#f59e0b44;background:#f59e0b11;}
+.status-badge.done{color:#60a5fa;border-color:#3b82f644;background:#3b82f611;}
+@keyframes pulse-b{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.3)}50%{box-shadow:0 0 0 8px rgba(34,197,94,0)}}
+.setup-box{
+  margin:10px 12px 0;background:#141414;border-radius:18px;
+  padding:16px 18px;border:1px solid #1e1e1e;
+}
+.setup-title{font-size:11px;color:#555;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:12px;}
+select,input[type=number]{
+  width:100%;padding:12px 14px;background:#1e1e1e;color:#fff;
+  border:1px solid #2a2a2a;border-radius:12px;font-size:15px;
+  -webkit-appearance:none;outline:none;
+}
+.input-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
+.input-lbl{font-size:11px;color:#555;letter-spacing:1px;text-transform:uppercase;font-weight:600;margin-bottom:5px;}
+.controls{margin:12px 12px 0;display:flex;gap:10px;align-items:center;}
+.btn-main{
+  flex:1;padding:18px 0;border-radius:50px;border:none;
+  font-size:17px;font-weight:700;cursor:pointer;letter-spacing:0.3px;
+  -webkit-tap-highlight-color:transparent;touch-action:manipulation;
+  transition:opacity .15s,transform .1s;
+}
+.btn-main:active{opacity:.8;transform:scale(.97);}
+.btn-start{background:#fff;color:#000;}
+.btn-stop{background:#e53935;color:#fff;}
+.btn-icon{
+  width:56px;height:56px;border-radius:50%;border:1px solid #333;
+  background:#1e1e1e;color:#fff;font-size:20px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  -webkit-tap-highlight-color:transparent;
+}
+.btn-icon:active{opacity:.7;}
+.warn{
+  margin:8px 12px 0;background:#1a0a0a;border:1px solid #4a1515;
+  border-radius:12px;padding:12px 14px;font-size:12px;color:#fca5a5;
+  display:none;line-height:1.7;
+}
+.result-box{
+  margin:10px 12px 0;background:#141414;border:1px solid #22c55e44;
+  border-radius:18px;padding:18px;display:none;
+}
+.result-title{color:#22c55e;font-weight:700;font-size:14px;margin-bottom:12px;}
+.r-row{
+  display:flex;justify-content:space-between;
+  padding:9px 0;border-bottom:1px solid #1e1e1e;font-size:14px;
+}
+.r-row:last-child{border:none;}
+.r-k{color:#666;}.r-v{color:#fff;font-weight:700;}
+textarea{
+  width:100%;margin-top:12px;background:#1e1e1e;color:#fff;
+  border:1px solid #2a2a2a;border-radius:12px;padding:12px;
+  font-size:13px;resize:vertical;min-height:60px;outline:none;
+}
+.copy-btn{
+  width:100%;margin-top:10px;padding:12px;
+  background:#22c55e22;border:1px solid #22c55e55;color:#22c55e;
+  border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.copy-btn:active{opacity:.7;}
+.bottom-pad{height:16px;}
 </style>
 </head>
 <body>
 
-<div class="card">
-  <p style="color:#6b7280;font-size:9px;font-weight:700;letter-spacing:1.2px;margin-bottom:10px">SETUP AKTIVITAS</p>
-  <label>Jenis Aktivitas</label>
-  <select id="act">
-    <option>Lari</option>
-    <option>Jalan Kaki</option>
-    <option>Berenang</option>
-    <option>Bersepeda</option>
-    <option>Hiking</option>
-    <option>Sepak Bola</option>
-    <option>Gym / Angkat Beban</option>
-    <option>Yoga / Pilates</option>
-    <option>Badminton</option>
-    <option>Tenis</option>
-    <option>Olahraga Lainnya</option>
-  </select>
-  <label>Berat Badan (kg)</label>
-  <input type="number" id="wt" value="65" min="30" max="200" step="1">
+<!-- TOP BAR -->
+<div class="top-bar">
+  <span class="title" id="act-title">Lari</span>
+  <div class="target-badge">
+    <span class="spd-dot" id="badge-dot"></span>
+    <span id="badge-txt">Siap</span>
+  </div>
 </div>
 
-<div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-    <span class="badge b-idle" id="badge">SIAP</span>
-    <span class="acc-info" id="acc-info"></span>
+<!-- SETUP -->
+<div class="setup-box" id="setup-box">
+  <p class="setup-title">Setup Aktivitas</p>
+  <div>
+    <p class="input-lbl">Jenis Aktivitas</p>
+    <select id="act" onchange="document.getElementById('act-title').textContent=this.value">
+      <option>Lari</option><option>Jalan Kaki</option><option>Berenang</option>
+      <option>Bersepeda</option><option>Hiking</option><option>Sepak Bola</option>
+      <option>Gym / Angkat Beban</option><option>Yoga / Pilates</option>
+      <option>Badminton</option><option>Tenis</option><option>Olahraga Lainnya</option>
+    </select>
   </div>
-  <div class="grid">
-    <div class="box"><div class="lbl">DURASI</div><div class="val" id="s-dur">00:00</div><div class="unit">mm:ss</div></div>
-    <div class="box"><div class="lbl">JARAK</div><div class="val" id="s-dist">0.00</div><div class="unit">km</div></div>
-    <div class="box"><div class="lbl">PACE</div><div class="val" id="s-pace">--:--</div><div class="unit">min/km</div></div>
-    <div class="box"><div class="lbl">KALORI</div><div class="val" id="s-cal">0</div><div class="unit">kkal</div></div>
+  <div class="input-row">
+    <div>
+      <p class="input-lbl">Berat Badan</p>
+      <input type="number" id="wt" value="65" min="30" max="200" step="1" placeholder="kg">
+    </div>
+    <div>
+      <p class="input-lbl">Target Jarak</p>
+      <input type="number" id="target" value="1" min="0" max="100" step="0.5" placeholder="km">
+    </div>
   </div>
-  <div class="spd" id="s-spd">0.0 km/h</div>
-  <div style="text-align:center;margin-bottom:8px"><small style="color:#6b7280;font-size:9px;letter-spacing:1px">KECEPATAN SAAT INI</small></div>
-
-  <button class="btn green" id="btn-start" onclick="startTracking()">Mulai Tracking</button>
-  <div id="act-btns" style="display:none">
-    <button class="btn amber" id="btn-pause" onclick="togglePause()">Pause</button>
-    <button class="btn red" onclick="stopTracking()">Stop &amp; Simpan</button>
-  </div>
-  <div class="warn" id="warn"></div>
 </div>
 
-<div class="res" id="res">
-  <p style="color:#22c55e;font-weight:700;font-size:13px;margin-bottom:8px">Aktivitas Selesai!</p>
+<!-- MAIN DISTANCE CARD -->
+<div class="distance-card">
+  <p class="dist-label">Jarak</p>
+  <div>
+    <span class="dist-value" id="s-dist">0<span style="font-size:40px;color:#444">,</span>00</span>
+    <span class="dist-unit">km</span>
+  </div>
+  <div class="dist-sub">
+    <span class="dot"></span>
+    <span>Jarak tersisa: <span id="dist-remain">—</span> km</span>
+  </div>
+</div>
+
+<!-- 4-GRID METRICS: Durasi | Laju | Kecepatan | Kalori -->
+<div class="metrics-grid">
+  <div class="metric-card card-dur">
+    <p class="metric-lbl">Durasi</p>
+    <p class="metric-val" id="s-dur">00<span style="font-size:22px;color:#4f8fff">:</span>00</p>
+    <p class="metric-unit">menit : detik</p>
+  </div>
+  <div class="metric-card card-pace">
+    <p class="metric-lbl">Laju</p>
+    <p class="metric-val smaller" id="s-pace">--<span style="font-size:18px;color:#ff6b6b">:</span>--</p>
+    <p class="metric-unit">menit / km</p>
+  </div>
+  <div class="metric-card card-spd">
+    <p class="metric-lbl">Kecepatan</p>
+    <p class="metric-val" id="s-spd">0<span style="font-size:22px;color:#fb923c">,</span>0</p>
+    <p class="metric-unit">km / jam</p>
+  </div>
+  <div class="metric-card card-cal">
+    <p class="metric-lbl">Kalori</p>
+    <p class="metric-val" id="s-cal">0</p>
+    <p class="metric-unit">kkal</p>
+  </div>
+</div>
+
+<!-- SPEED LIVE BAR -->
+<div class="speed-row">
+  <div class="speed-left">
+    <p class="lbl">Kecepatan Saat Ini</p>
+    <p class="val" id="spd-live">0,0 <span style="font-size:14px;color:#888;font-weight:400;">km/j</span></p>
+  </div>
+  <div class="speed-right">
+    <div class="spd-dot" id="spd-dot"></div>
+    <span class="acc-text" id="acc-txt">GPS: --</span>
+  </div>
+</div>
+
+<!-- WARN -->
+<div class="warn" id="warn"></div>
+
+<!-- STATUS -->
+<div class="status-row">
+  <div class="status-badge idle" id="status-badge">SIAP MEMULAI</div>
+</div>
+
+<!-- CONTROLS -->
+<div class="controls" id="ctrl-idle">
+  <button class="btn-main btn-start" onclick="startTracking()">Mulai</button>
+</div>
+<div class="controls" id="ctrl-active" style="display:none">
+  <button class="btn-icon" onclick="togglePause()" id="btn-pause-ico">⏸</button>
+  <button class="btn-main btn-stop" onclick="stopTracking()">Selesai</button>
+  <button class="btn-icon">📍</button>
+</div>
+
+<!-- RESULT -->
+<div class="result-box" id="result-box">
+  <p class="result-title">✅ Aktivitas Selesai!</p>
   <div id="res-rows"></div>
-  <textarea id="note" placeholder="Catatan: cuaca, lokasi, perasaan..."></textarea>
-  <button class="cpbtn" onclick="copyResult()">Salin Ringkasan ke Log Manual</button>
+  <textarea id="note" placeholder="Catatan: lokasi, cuaca, perasaan..."></textarea>
+  <button class="copy-btn" onclick="copyResult()">Salin Ringkasan → Log Manual</button>
 </div>
+
+<div class="bottom-pad"></div>
 
 <script>
 var MET={
@@ -1388,29 +1479,64 @@ function hav(a,b,c,d){
   var x=Math.sin(dA/2)*Math.sin(dA/2)+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dB/2)*Math.sin(dB/2);
   return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
 }
-function fmtT(s){return("0"+Math.floor(s/60)).slice(-2)+":"+("0"+(s%60)).slice(-2);}
-function fmtP(d,s){if(d<0.01)return"--:--";var p=s/d;return Math.floor(p/60)+":"+("0"+Math.round(p%60)).slice(-2);}
+function pad2(n){return('0'+n).slice(-2);}
+function fmtDur(s){
+  return pad2(Math.floor(s/60))+'<span style="font-size:22px;color:#4f8fff">:</span>'+pad2(s%60);
+}
+function fmtPace(d,s){
+  if(d<0.01)return'--<span style="font-size:18px;color:#ff6b6b">:</span>--';
+  var p=s/d;
+  return pad2(Math.floor(p/60))+'<span style="font-size:18px;color:#ff6b6b">:</span>'+pad2(Math.round(p%60));
+}
+function fmtSpd(k){
+  var s=k.toFixed(1),p=s.split('.');
+  return p[0]+'<span style="font-size:22px;color:#fb923c">,</span>'+p[1];
+}
+function fmtDist(k){
+  var s=k.toFixed(2),p=s.split('.');
+  return p[0]+'<span style="font-size:40px;color:#444">,</span>'+p[1];
+}
 function kkal(min,kg,act){return Math.round((MET[act]||5)*kg*(min/60));}
-function setBadge(c,t){var b=document.getElementById("badge");b.className="badge "+c;b.textContent=t;}
-function showWarn(m){var w=document.getElementById("warn");w.style.display="block";w.innerHTML=m;}
-function hideWarn(){document.getElementById("warn").style.display="none";}
+
+function setBadge(cls,txt){
+  var b=document.getElementById('status-badge');
+  b.className='status-badge '+cls;b.textContent=txt;
+}
+function setGps(active,txt){
+  document.getElementById('badge-dot').className='spd-dot'+(active?' active':'');
+  document.getElementById('badge-txt').textContent=txt;
+}
+function showWarn(m){var w=document.getElementById('warn');w.style.display='block';w.innerHTML=m;}
+function hideWarn(){document.getElementById('warn').style.display='none';}
 
 function tick(){
   elapsed++;
-  var kg=parseFloat(document.getElementById("wt").value)||65;
-  var act=document.getElementById("act").value;
-  document.getElementById("s-dur").textContent=fmtT(elapsed);
-  document.getElementById("s-dist").textContent=dist.toFixed(2);
-  document.getElementById("s-pace").textContent=fmtP(dist,elapsed);
-  document.getElementById("s-cal").textContent=kkal(elapsed/60,kg,act);
+  var kg=parseFloat(document.getElementById('wt').value)||65;
+  var act=document.getElementById('act').value;
+  var target=parseFloat(document.getElementById('target').value)||0;
+  document.getElementById('s-dur').innerHTML=fmtDur(elapsed);
+  document.getElementById('s-dist').innerHTML=fmtDist(dist);
+  document.getElementById('s-pace').innerHTML=fmtPace(dist,elapsed);
+  document.getElementById('s-cal').textContent=kkal(elapsed/60,kg,act);
+  if(target>0){
+    var rem=Math.max(target-dist,0);
+    document.getElementById('dist-remain').textContent=rem.toFixed(2);
+    if(dist>=target)stopTracking();
+  }
 }
 
 function onPos(pos){
   var la=pos.coords.latitude,lo=pos.coords.longitude,
       acc=pos.coords.accuracy,spd=pos.coords.speed;
-  document.getElementById("acc-info").textContent="GPS +-"+Math.round(acc)+"m";
-  if(acc>60){showWarn("<b>Sinyal GPS lemah</b> (akurasi >60m). Coba ke luar ruangan atau tunggu sinyal lebih kuat.");}
-  else{hideWarn();}
+  document.getElementById('acc-txt').textContent='+-'+Math.round(acc)+'m';
+  if(acc>60){
+    document.getElementById('spd-dot').className='spd-dot';
+    showWarn('<b>Sinyal GPS lemah</b> (akurasi >60m). Coba ke luar ruangan.');
+  } else {
+    document.getElementById('spd-dot').className='spd-dot active';
+    hideWarn();
+  }
+  setGps(acc<=60,'GPS '+Math.round(acc)+'m');
   if(lastPos&&acc<=60){var d=hav(lastPos.la,lastPos.lo,la,lo);if(d>0.003)dist+=d;}
   lastPos={la:la,lo:lo};
   positions.push({la:la,lo:lo,t:Date.now()});
@@ -1420,124 +1546,105 @@ function onPos(pos){
     var dt=(cr.t-pr.t)/1000,dp=hav(pr.la,pr.lo,cr.la,cr.lo);
     lastSpd=dt>0?(dp/dt)*3600:0;
   }
-  document.getElementById("s-spd").textContent=lastSpd.toFixed(1)+" km/h";
+  document.getElementById('s-spd').innerHTML=fmtSpd(lastSpd);
+  document.getElementById('spd-live').innerHTML=fmtSpd(lastSpd)+' <span style="font-size:14px;color:#888;font-weight:400;">km/j</span>';
 }
 
 function onErr(err){
-  var msg="GPS tidak bisa diakses.";
-  if(err.code===1){msg="<b>Izin lokasi ditolak.</b><br>Ketuk ikon kunci/info di address bar Chrome > Izin > Lokasi > Izinkan. Lalu refresh halaman.";}
-  else if(err.code===2){msg="<b>Sinyal GPS tidak tersedia.</b> Coba pindah ke luar ruangan.";}
-  else if(err.code===3){msg="<b>GPS timeout.</b> Pastikan lokasi aktif di HP dan coba lagi.";}
+  var msg='GPS tidak bisa diakses.';
+  if(err.code===1)msg='<b>Izin lokasi ditolak.</b><br>Tap ikon kunci di address bar > Izin > Lokasi > Izinkan. Lalu refresh.';
+  else if(err.code===2)msg='<b>Sinyal GPS tidak tersedia.</b> Pindah ke luar ruangan.';
+  else if(err.code===3)msg='<b>GPS timeout.</b> Pastikan lokasi aktif di HP lalu coba lagi.';
   showWarn(msg);
-  document.getElementById("btn-start").disabled=false;
-  document.getElementById("btn-start").textContent="Mulai Tracking";
-  setBadge("b-idle","SIAP");
-  state="idle";
+  document.getElementById('ctrl-idle').style.display='flex';
+  document.getElementById('ctrl-active').style.display='none';
+  setBadge('idle','SIAP MEMULAI');
+  setGps(false,'Siap');
+  state='idle';
 }
 
 function startTracking(){
-  if(!navigator.geolocation){
-    showWarn("Browser ini tidak mendukung GPS. Gunakan Chrome versi terbaru.");
-    return;
-  }
-  setBadge("b-active","Mendeteksi GPS...");
-  document.getElementById("btn-start").disabled=true;
-  document.getElementById("btn-start").textContent="Menghubungkan GPS...";
+  if(!navigator.geolocation){showWarn('Browser ini tidak mendukung GPS. Gunakan Chrome versi terbaru.');return;}
+  setBadge('active','MENDETEKSI GPS...');
+  setGps(false,'Mencari...');
   hideWarn();
-
+  document.getElementById('ctrl-idle').style.display='none';
   navigator.geolocation.getCurrentPosition(
     function(pos){
-      state="active";elapsed=0;dist=0;positions=[];lastPos=null;lastSpd=0;
-      document.getElementById("act").disabled=true;
-      document.getElementById("wt").disabled=true;
-      document.getElementById("btn-start").style.display="none";
-      document.getElementById("btn-start").disabled=false;
-      document.getElementById("btn-start").textContent="Mulai Tracking";
-      document.getElementById("act-btns").style.display="block";
-      setBadge("b-active","AKTIF");
+      state='active';elapsed=0;dist=0;positions=[];lastPos=null;lastSpd=0;
+      document.getElementById('setup-box').style.display='none';
+      document.getElementById('ctrl-active').style.display='flex';
+      document.getElementById('act').disabled=true;
+      document.getElementById('wt').disabled=true;
+      document.getElementById('target').disabled=true;
+      setBadge('active','AKTIF');
       hideWarn();
-      tmr=setInterval(tick,1000);
       onPos(pos);
+      tmr=setInterval(tick,1000);
       watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:2000,timeout:15000});
     },
-    function(err){
-      document.getElementById("btn-start").disabled=false;
-      document.getElementById("btn-start").textContent="Mulai Tracking";
-      setBadge("b-idle","SIAP");
-      onErr(err);
-    },
+    function(err){document.getElementById('ctrl-idle').style.display='flex';onErr(err);},
     {enableHighAccuracy:true,timeout:15000,maximumAge:0}
   );
 }
 
 function togglePause(){
-  if(state==="active"){
-    state="paused";clearInterval(tmr);navigator.geolocation.clearWatch(watchId);
-    document.getElementById("btn-pause").textContent="Lanjutkan";
-    setBadge("b-pause","PAUSE");
-  } else if(state==="paused"){
-    state="active";tmr=setInterval(tick,1000);
+  var btn=document.getElementById('btn-pause-ico');
+  if(state==='active'){
+    state='paused';clearInterval(tmr);navigator.geolocation.clearWatch(watchId);
+    btn.textContent='▶️';setBadge('paused','DIJEDA');setGps(false,'Dijeda');
+  } else if(state==='paused'){
+    state='active';tmr=setInterval(tick,1000);
     watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:2000,timeout:15000});
-    document.getElementById("btn-pause").textContent="Pause";
-    setBadge("b-active","AKTIF");
+    btn.textContent='⏸';setBadge('active','AKTIF');setGps(true,'Aktif');
   }
 }
 
 function stopTracking(){
-  state="done";clearInterval(tmr);
+  state='done';clearInterval(tmr);
   if(watchId)navigator.geolocation.clearWatch(watchId);
-  var act=document.getElementById("act").value;
-  var kg=parseFloat(document.getElementById("wt").value)||65;
-  var dMin=elapsed/60,cal=kkal(dMin,kg,act),pace=fmtP(dist,elapsed);
-  setBadge("b-done","SELESAI");
-  document.getElementById("act-btns").style.display="none";
-  var rb=document.getElementById("res");rb.style.display="block";
+  document.getElementById('ctrl-active').style.display='none';
+  setBadge('done','SELESAI');setGps(false,'Selesai');
+  var act=document.getElementById('act').value;
+  var kg=parseFloat(document.getElementById('wt').value)||65;
+  var dMin=elapsed/60,cal=kkal(dMin,kg,act);
+  var pace='--:--';
+  if(dist>0.01){var p=elapsed/dist;pace=pad2(Math.floor(p/60))+':'+pad2(Math.round(p%60));}
+  var rb=document.getElementById('result-box');rb.style.display='block';
   var rows=[
-    ["Aktivitas",act],["Durasi",fmtT(elapsed)],
-    ["Jarak",dist.toFixed(2)+" km"],["Pace",pace+" min/km"],
-    ["Kecepatan",lastSpd.toFixed(1)+" km/h"],
-    ["Kalori",cal+" kkal"],["Berat badan",kg+" kg"]
+    ['Aktivitas',act],['Durasi',pad2(Math.floor(elapsed/60))+':'+pad2(elapsed%60)],
+    ['Jarak',dist.toFixed(2)+' km'],['Laju',pace+' min/km'],
+    ['Kecepatan',lastSpd.toFixed(1)+' km/j'],['Kalori',cal+' kkal'],
   ];
-  document.getElementById("res-rows").innerHTML=rows.map(function(r){
-    return'<div class="rrow"><span class="rk">'+r[0]+'</span><span class="rv">'+r[1]+'</span></div>';
-  }).join("");
+  document.getElementById('res-rows').innerHTML=rows.map(function(r){
+    return '<div class="r-row"><span class="r-k">'+r[0]+'</span><span class="r-v">'+r[1]+'</span></div>';
+  }).join('');
   window._res={act:act,dMin:Math.round(dMin),dist:dist.toFixed(2),cal:cal,pace:pace,spd:lastSpd.toFixed(1)};
-  rb.scrollIntoView({behavior:"smooth"});
+  rb.scrollIntoView({behavior:'smooth'});
 }
 
 function copyResult(){
   var r=window._res||{};
-  var note=document.getElementById("note").value;
-  var lines=[
-    "=== Recovera GPS Result ===",
-    "Aktivitas : "+(r.act||"-"),
-    "Durasi    : "+(r.dMin||0)+" menit",
-    "Jarak     : "+(r.dist||"0.00")+" km",
-    "Pace      : "+(r.pace||"--:--")+" min/km",
-    "Kalori    : "+(r.cal||0)+" kkal",
-    note?"Catatan   : "+note:"",
-    "==========================="
-  ].filter(Boolean).join("\\n");
+  var note=document.getElementById('note').value;
+  var lines=['=== Recovera GPS Result ===',
+    'Aktivitas : '+(r.act||'-'),'Durasi    : '+(r.dMin||0)+' menit',
+    'Jarak     : '+(r.dist||'0.00')+' km','Laju      : '+(r.pace||'--:--')+' min/km',
+    'Kalori    : '+(r.cal||0)+' kkal',note?'Catatan   : '+note:'','==========================='
+  ].filter(Boolean).join('\\n');
   if(navigator.clipboard&&navigator.clipboard.writeText){
-    navigator.clipboard.writeText(lines).then(function(){alert("Disalin! Buka tab Log Manual dan tempel di kolom Catatan.");});
+    navigator.clipboard.writeText(lines).then(function(){alert('Disalin! Buka tab Log Manual dan tempel di kolom Catatan.');});
   } else {
-    var ta=document.createElement("textarea");
-    ta.value=lines;document.body.appendChild(ta);ta.select();
-    document.execCommand("copy");document.body.removeChild(ta);
-    alert("Disalin! Buka tab Log Manual dan tempel di kolom Catatan.");
+    var ta=document.createElement('textarea');ta.value=lines;
+    document.body.appendChild(ta);ta.select();
+    document.execCommand('copy');document.body.removeChild(ta);
+    alert('Disalin! Buka tab Log Manual dan tempel di kolom Catatan.');
   }
 }
 </script>
 </body>
 </html>
 """
-        # Render via components.html — ini jalan di iframe Streamlit
-        # GPS akan minta izin dari PARENT window (streamlit.app) bukan iframe
-        # sehingga Chrome tidak memblokir geolocation
-        import streamlit.components.v1 as components
-        components.html(gps_html, height=660, scrolling=True)
-
-
+        components.html(gps_html, height=700, scrolling=True)
 
         st.markdown("---")
         st.markdown("""
@@ -1547,16 +1654,16 @@ function copyResult(){
             </p>
             <ul style="color:#9CA3AF;font-size:13px;line-height:2;margin:0;padding-left:18px;">
                 <li>Gunakan di <b style="color:white;">luar ruangan</b> untuk akurasi GPS terbaik</li>
-                <li><b style="color:white;">Layar HP harus tetap aktif</b> selama tracking (aktifkan screen lock lebih lama)</li>
+                <li><b style="color:white;">Layar HP harus tetap aktif</b> selama tracking</li>
                 <li>Kalori dihitung dengan formula <b style="color:#fb923c;">MET × berat × durasi</b></li>
-                <li>Setelah selesai, <b style="color:white;">salin ringkasan</b> lalu tempel di tab Log Manual untuk disimpan</li>
-                <li>Jarak tidak terhitung saat <b style="color:white;">akurasi GPS > 50 meter</b> (sinyal lemah)</li>
+                <li>Setelah selesai, <b style="color:white;">salin ringkasan</b> lalu tempel di tab Log Manual</li>
+                <li>Jarak tidak terhitung saat <b style="color:white;">akurasi GPS &gt; 60 meter</b></li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════
-    # TAB 2: LOG MANUAL (dari lama, tidak berubah)
+    # TAB 2: LOG MANUAL
     # ══════════════════════════════════════════════════════
     with tab_log:
         st.markdown("#### Catat Aktivitas (Manual / Dari Hasil GPS)")
@@ -1620,7 +1727,7 @@ function copyResult(){
         """, unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════
-    # TAB 3: RECAP MINGGUAN (tidak berubah dari versi lama)
+    # TAB 3: RECAP MINGGUAN
     # ══════════════════════════════════════════════════════
     with tab_recap:
         if strava_df.empty:
@@ -1798,7 +1905,7 @@ function copyResult(){
                 st.info(f"Korelasi belum bisa dihitung: {ex}")
 
     # ══════════════════════════════════════════════════════
-    # TAB 4: RIWAYAT (tidak berubah dari versi lama)
+    # TAB 4: RIWAYAT
     # ══════════════════════════════════════════════════════
     with tab_history:
         if strava_df.empty:
@@ -1851,7 +1958,7 @@ function copyResult(){
                         st.rerun()
 
 # ══════════════════════════════════════════════════════
-#  AUTH SCREENS
+# AUTH SCREENS
 # ══════════════════════════════════════════════════════
 
 def show_welcome():
@@ -2034,9 +2141,8 @@ def show_register():
             st.session_state.auth_screen = "login"
             st.rerun()
 
-
 # ══════════════════════════════════════════════════════
-#  AUTH GATE
+# AUTH GATE
 # ══════════════════════════════════════════════════════
 
 if not st.session_state.logged_in:
@@ -2049,9 +2155,8 @@ if not st.session_state.logged_in:
         show_welcome()
     st.stop()
 
-
 # ══════════════════════════════════════════════════════
-#  ONBOARDING MODAL
+# ONBOARDING MODAL
 # ══════════════════════════════════════════════════════
 
 if st.session_state.get("show_onboarding", False):
@@ -2074,9 +2179,7 @@ if st.session_state.get("show_onboarding", False):
                             min-width:40px;height:40px;display:flex;align-items:center;
                             justify-content:center;font-size:18px;">📸</div>
                 <div>
-                    <p style="color:white;font-weight:700;font-size:14px;margin:0 0 3px;">
-                        Langkah 1 — Face Check
-                    </p>
+                    <p style="color:white;font-weight:700;font-size:14px;margin:0 0 3px;">Langkah 1 — Face Check</p>
                     <p style="color:#9CA3AF;font-size:13px;margin:0;line-height:1.5;">
                         Mulai dengan scan wajahmu untuk deteksi kelelahan instan berbasis ekspresi.
                     </p>
@@ -2088,9 +2191,7 @@ if st.session_state.get("show_onboarding", False):
                             min-width:40px;height:40px;display:flex;align-items:center;
                             justify-content:center;font-size:18px;">📋</div>
                 <div>
-                    <p style="color:white;font-weight:700;font-size:14px;margin:0 0 3px;">
-                        Langkah 2 — Daily Check
-                    </p>
+                    <p style="color:white;font-weight:700;font-size:14px;margin:0 0 3px;">Langkah 2 — Daily Check</p>
                     <p style="color:#9CA3AF;font-size:13px;margin:0;line-height:1.5;">
                         Isi data harian (layar, tidur, stres) untuk analisis lebih akurat dengan AI.
                     </p>
@@ -2102,9 +2203,7 @@ if st.session_state.get("show_onboarding", False):
                             min-width:40px;height:40px;display:flex;align-items:center;
                             justify-content:center;font-size:18px;">🌿</div>
                 <div>
-                    <p style="color:white;font-weight:700;font-size:14px;margin:0 0 3px;">
-                        Langkah 3 — Recovery & Journey
-                    </p>
+                    <p style="color:white;font-weight:700;font-size:14px;margin:0 0 3px;">Langkah 3 — Recovery & Journey</p>
                     <p style="color:#9CA3AF;font-size:13px;margin:0;line-height:1.5;">
                         Jalankan recovery plan harianmu dan pantau progres di Journey.
                     </p>
@@ -2116,11 +2215,9 @@ if st.session_state.get("show_onboarding", False):
                             min-width:40px;height:40px;display:flex;align-items:center;
                             justify-content:center;font-size:18px;">🏃</div>
                 <div>
-                    <p style="color:white;font-weight:700;font-size:14px;margin:0 0 3px;">
-                        Langkah 4 — Strava
-                    </p>
+                    <p style="color:white;font-weight:700;font-size:14px;margin:0 0 3px;">Langkah 4 — Strava</p>
                     <p style="color:#9CA3AF;font-size:13px;margin:0;line-height:1.5;">
-                        Log aktivitas fisikmu dan pantau progres olahraga mingguan. Terhubung otomatis ke Daily Check.
+                        Log aktivitas fisikmu dan pantau progres olahraga mingguan.
                     </p>
                 </div>
             </div>
@@ -2145,9 +2242,8 @@ if st.session_state.get("show_onboarding", False):
             st.rerun()
     st.stop()
 
-
 # ══════════════════════════════════════════════════════
-#  SIDEBAR
+# SIDEBAR
 # ══════════════════════════════════════════════════════
 
 user         = st.session_state.user
@@ -2200,7 +2296,6 @@ if st.sidebar.button("🚪 Keluar", use_container_width=True, key="logout_btn"):
     st.rerun()
 
 menu = st.session_state.menu
-
 
 # ═════════════════════════════════════════════
 # PAGE: BERANDA
@@ -2262,20 +2357,6 @@ if menu == "Beranda":
         """, unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:20px;'></div>", unsafe_allow_html=True)
-
-    st.markdown("""
-    <div style="text-align:center;padding:28px 16px 8px;">
-        <p style="font-size:15px;color:#6B7280;font-style:italic;line-height:1.9;margin:0;">
-            "Recovera bukan untuk mendiagnosis — tapi untuk
-            <span style="color:#22c55e;font-style:italic;">menyadarkan.</span><br>
-            Karena langkah pertama menuju pemulihan adalah
-            <span style="color:#22c55e;font-weight:700;font-style:italic;">
-                mengenali bahwa kamu membutuhkannya.
-            </span>"
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
     st.markdown("""
     <div style="background:linear-gradient(135deg,#052e16,#14532d,#166534);
                 border:1px solid rgba(34,197,94,0.3);border-radius:20px;
@@ -2292,9 +2373,8 @@ if menu == "Beranda":
     </div>
     """, unsafe_allow_html=True)
 
-
 # ═════════════════════════════════════════════
-# PAGE: FACE CHECK  (MediaPipe)
+# PAGE: FACE CHECK
 # ═════════════════════════════════════════════
 
 elif menu == "Face Check":
@@ -2322,7 +2402,6 @@ elif menu == "Face Check":
     </div>
     """, unsafe_allow_html=True)
 
-    # ── [FIX #6] Tampilkan status face_result jika sudah ada hari ini ────────
     if is_face_result_today():
         fr_existing = st.session_state.face_result
         fc_color_ex = {"Rendah": "#22c55e", "Sedang": "#f59e0b", "Tinggi": "#ef4444"}.get(
@@ -2339,8 +2418,7 @@ elif menu == "Face Check":
                 </span>
                 &nbsp;|&nbsp; EAR: {fr_existing['ear']}
                 &nbsp;|&nbsp; MAR: {fr_existing['mar']}
-                &nbsp;|&nbsp; Penyesuaian: <b>+{fr_existing['face_bonus']}%</b>
-                <br>
+                &nbsp;|&nbsp; Penyesuaian: <b>+{fr_existing['face_bonus']}%</b><br>
                 Kamu bisa scan ulang di bawah jika ingin memperbarui.
             </p>
         </div>
@@ -2351,8 +2429,7 @@ elif menu == "Face Check":
     st.markdown("""
     <div style="background:#111827;border:1px solid #1f2937;
                 border-radius:12px;padding:14px 16px;margin-bottom:12px;">
-        <p style="color:#9CA3AF;font-size:13px;font-weight:700;
-                  margin:0 0 8px;letter-spacing:1px;">📋 UNTUK HASIL TERBAIK</p>
+        <p style="color:#9CA3AF;font-size:13px;font-weight:700;margin:0 0 8px;letter-spacing:1px;">📋 UNTUK HASIL TERBAIK</p>
         <ul style="color:#D1D5DB;font-size:13px;line-height:2;margin:0;padding-left:16px;">
             <li>Pastikan pencahayaan cukup dan merata</li>
             <li>Posisikan wajah tepat di tengah kamera</li>
@@ -2370,8 +2447,7 @@ elif menu == "Face Check":
                 border-radius:12px;padding:12px 16px;margin-top:8px;">
         <p style="color:#F59E0B;font-size:13px;margin:0;line-height:1.7;">
             ⚠️ <b>Disclaimer:</b> Hasil Face Check hanya bersifat indikatif berdasarkan
-            kondisi mata dan wajah, <b>bukan diagnosis medis</b>. Akurasi dapat dipengaruhi
-            oleh pencahayaan, sudut kamera, kacamata, dan kondisi fisik wajah.
+            kondisi mata dan wajah, <b>bukan diagnosis medis</b>.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -2405,24 +2481,15 @@ elif menu == "Face Check":
             st.markdown(f"""
             <div style="background:#111827;padding:20px;border-radius:18px;
                         border-left:6px solid {color};margin:16px 0;">
-                <h3 style="color:white;margin-top:0;font-size:18px;">
-                    Kondisi Wajah: {label}
-                </h3>
-                <p style="color:{color};font-size:18px;font-weight:700;margin:4px 0;">
-                    Fatigue Level: {level}
-                </p>
+                <h3 style="color:white;margin-top:0;font-size:18px;">Kondisi Wajah: {label}</h3>
+                <p style="color:{color};font-size:18px;font-weight:700;margin:4px 0;">Fatigue Level: {level}</p>
                 <p style="color:#9ca3af;font-size:13px;margin:4px 0 10px;">
-                    Confidence: {confidence:.0f}% &nbsp;|&nbsp;
-                    EAR: {ear:.3f} &nbsp;|&nbsp;
-                    MAR: {mar:.3f}
+                    Confidence: {confidence:.0f}% &nbsp;|&nbsp; EAR: {ear:.3f} &nbsp;|&nbsp; MAR: {mar:.3f}
                 </p>
-                <p style="color:#D1D5DB;font-size:15px;line-height:1.7;margin:0;">
-                    {message}
-                </p>
+                <p style="color:#D1D5DB;font-size:15px;line-height:1.7;margin:0;">{message}</p>
             </div>
             """, unsafe_allow_html=True)
 
-            # Expression tag re-detection
             results2 = face_mesh.process(img_array)
             expression_tags = []
             if results2.multi_face_landmarks:
@@ -2542,7 +2609,6 @@ elif menu == "Face Check":
             else:
                 st.success("Kondisi wajah Anda terlihat segar! Pertahankan pola istirahat dan aktivitas digital yang seimbang.")
 
-            # ── [FIX #6] Simpan face_result dengan timestamp hari ini ────────
             face_fatigue_map = {"Rendah": 0, "Sedang": 8, "Tinggi": 15}
             face_bonus       = face_fatigue_map.get(level, 0)
             st.session_state.face_result = {
@@ -2552,7 +2618,7 @@ elif menu == "Face Check":
                 "face_bonus":  face_bonus,
                 "ear":         round(ear, 3),
                 "mar":         round(mar, 3),
-                "timestamp":   datetime.now().strftime("%Y-%m-%d"),  # ← FIX #6
+                "timestamp":   datetime.now().strftime("%Y-%m-%d"),
             }
 
             st.markdown("---")
@@ -2570,9 +2636,7 @@ elif menu == "Face Check":
             <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);
                         border-radius:12px;padding:12px 16px;margin-top:8px;">
                 <p style="color:#86EFAC;font-size:13px;margin:0;line-height:1.7;">
-                    ✅ Face Check selesai! Lanjutkan ke <b>Daily Check</b> untuk
-                    analisis yang lebih lengkap — hasil Face Check akan otomatis
-                    diintegrasikan ke dalam skor akhir.
+                    ✅ Face Check selesai! Lanjutkan ke <b>Daily Check</b> untuk analisis lebih lengkap.
                 </p>
             </div>
             """, unsafe_allow_html=True)
@@ -2580,7 +2644,6 @@ elif menu == "Face Check":
             if st.button("➡️ Lanjut ke Daily Check", use_container_width=True):
                 st.session_state.menu = "Daily Check"
                 st.rerun()
-
 
 # ═════════════════════════════════════════════
 # PAGE: DAILY CHECK
@@ -2600,7 +2663,6 @@ elif menu == "Daily Check":
     </div>
     """, unsafe_allow_html=True)
 
-    # ── [FIX #6] Tampilkan status integrasi Face Check — hanya jika hari ini ──
     face_res = st.session_state.get("face_result")
     if is_face_result_today():
         fc_color = {"Rendah": "#22c55e", "Sedang": "#f59e0b", "Tinggi": "#ef4444"}.get(
@@ -2616,17 +2678,14 @@ elif menu == "Daily Check":
             </p>
         </div>
         """, unsafe_allow_html=True)
-        # Gunakan face_res yang valid hari ini
         active_face_res = face_res
     else:
-        # [FIX #6] face_result ada tapi dari hari kemarin — beri tahu user
         if face_res is not None:
             st.markdown("""
             <div style="background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.4);
                         border-radius:12px;padding:12px 16px;margin-bottom:14px;">
                 <p style="color:#fcd34d;font-size:13px;margin:0 0 8px;line-height:1.7;">
                     ⏰ <b>Face Check dari kemarin sudah kedaluwarsa.</b>
-                    Hasil Face Check hanya berlaku untuk hari yang sama.
                 </p>
                 <p style="color:#9CA3AF;font-size:13px;margin:0;">
                     Lakukan Face Check baru hari ini untuk penyesuaian skor, atau lanjutkan tanpa Face Check.
@@ -2640,7 +2699,6 @@ elif menu == "Daily Check":
                     st.rerun()
             with ow2:
                 if st.button("➡️ Lanjut Tanpa Face Check", use_container_width=True, key="skip_face"):
-                    # Reset face_result yang sudah basi
                     st.session_state.face_result = None
                     st.rerun()
         else:
@@ -2674,7 +2732,6 @@ elif menu == "Daily Check":
         unsafe_allow_html=True,
     )
 
-    # ── [FIX #8] Tampilkan konfirmasi overwrite jika sudah ada data hari ini ──
     if st.session_state.get("show_overwrite_confirm") and st.session_state.get("pending_daily_data"):
         pending = st.session_state.pending_daily_data
         prev    = st.session_state.wellness_result
@@ -2690,15 +2747,13 @@ elif menu == "Daily Check":
                 Fatigue Risk: {prev.get('fatigue_percent','—')}% &nbsp;|&nbsp;
                 Screen Time: {prev.get('screen_time','—')} jam &nbsp;|&nbsp;
                 Tidur: {prev.get('sleep_hours','—')} jam &nbsp;|&nbsp;
-                Stres: {prev.get('stress_level','—')}<br>
-                Mood: {prev.get('q_mood','—')} &nbsp;|&nbsp; Energi: {prev.get('q_energy','—')}
+                Stres: {prev.get('stress_level','—')}
             </div>
             <div class="prev-data" style="border-color:#22c55e44;">
                 <b style="color:#86EFAC;">Data baru (akan disimpan):</b><br>
                 Screen Time: {pending.get('screen_time','—')} jam &nbsp;|&nbsp;
                 Tidur: {pending.get('sleep_hours','—')} jam &nbsp;|&nbsp;
-                Stres: {pending.get('stress_level','—')}<br>
-                Mood: {pending.get('q_mood','—')} &nbsp;|&nbsp; Energi: {pending.get('q_energy','—')}
+                Stres: {pending.get('stress_level','—')}
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -2706,7 +2761,6 @@ elif menu == "Daily Check":
         ow_col1, ow_col2 = st.columns(2)
         with ow_col1:
             if st.button("✅ Ya, Timpa Data Lama", use_container_width=True):
-                # Lanjutkan proses simpan dengan pending_daily_data
                 st.session_state.show_overwrite_confirm = False
                 _proceed_save = True
                 st.rerun()
@@ -2717,7 +2771,6 @@ elif menu == "Daily Check":
                 st.rerun()
         st.stop()
 
-    # ── [FIX #8] Lanjutkan proses simpan setelah konfirmasi overwrite ─────────
     _proceed_save = False
     if (
         not st.session_state.get("show_overwrite_confirm")
@@ -2771,7 +2824,6 @@ elif menu == "Daily Check":
             st.error("⛔ Terdapat data yang tidak realistis. Periksa kembali input Anda sebelum melanjutkan.")
             st.stop()
 
-        # Siapkan data yang akan diproses
         _form_data = {
             "screen_time":  screen_time,
             "sleep_hours":  sleep_hours,
@@ -2785,22 +2837,14 @@ elif menu == "Daily Check":
             "q_digital":    q_digital,
         }
 
-        # ── [FIX #8] Cek apakah ada data hari ini sebelum menyimpan ──────────
         if has_wellness_today() and not _proceed_save:
             st.session_state.pending_daily_data    = _form_data
             st.session_state.show_overwrite_confirm = True
             st.rerun()
         else:
-            # Lanjutkan langsung (tidak ada data hari ini / sudah dikonfirmasi)
             st.session_state.pending_daily_data = None
             _proceed_save = True
 
-    # ── Proses analisis & simpan ──────────────────────────────────────────────
-    if _proceed_save and st.session_state.get("pending_daily_data") is None and submitted:
-        # Data sudah langsung di-submit (bukan dari pending)
-        pass
-
-    # Ambil data untuk diproses — bisa dari form langsung atau pending yang dikonfirmasi
     _data_to_process = None
     if _proceed_save:
         if st.session_state.get("pending_daily_data"):
@@ -2848,7 +2892,6 @@ elif menu == "Daily Check":
         if d["q_energy"]  in ["Mudah lelah", "Sangat lelah"]:          qual_score += 5
         if d["q_digital"] in ["Cukup sering", "Terus-menerus"]:        qual_score += 5
 
-        # [FIX #6] Hanya gunakan face_bonus jika face_result valid hari ini
         face_bonus = 0
         if is_face_result_today():
             face_bonus = st.session_state.face_result.get("face_bonus", 0)
@@ -2876,7 +2919,7 @@ elif menu == "Daily Check":
             "q_digital":       d["q_digital"],
             "face_level":      st.session_state.face_result["level"] if is_face_result_today() else "—",
             "face_bonus":      face_bonus,
-            "timestamp":       datetime.now().strftime("%Y-%m-%d"),  # ← FIX #8
+            "timestamp":       datetime.now().strftime("%Y-%m-%d"),
         }
         st.session_state.wellness_result   = result_dict
         st.session_state.recovery_checks   = {}
@@ -2930,7 +2973,7 @@ elif menu == "Daily Check":
         }
         category, explanation = PREDICTION_MAP.get(
             prediction,
-            ("🔴 Near-Burnout", "Kondisi mental Anda menunjukkan tanda-tanda kelelahan tinggi. Disarankan segera melakukan recovery."),
+            ("🔴 Near-Burnout", "Kondisi mental Anda menunjukkan tanda-tanda kelelahan tinggi."),
         )
         st.markdown(f"## {category}")
         st.warning(explanation)
@@ -2945,11 +2988,10 @@ elif menu == "Daily Check":
         if d["productivity"] < 60: recs += ["Gunakan teknik Pomodoro.", "Kurangi distraksi digital saat kerja."]
 
         if not recs:
-            st.success("Kondisi digital wellness Anda masih baik. Pertahankan keseimbangan aktivitas digital, fisik, dan istirahat.")
+            st.success("Kondisi digital wellness Anda masih baik. Pertahankan keseimbangan!")
         else:
             for r in list(dict.fromkeys(recs)):
                 st.success(r)
-
 
 # ═════════════════════════════════════════════
 # PAGE: RECOVERY
@@ -2992,8 +3034,7 @@ elif menu == "Recovery":
                 🚨 PERINGATAN: Kondisi Kritis — {bad_streak} Hari Berturut-turut Fatigue Tinggi!
             </p>
             <p style="color:#D1D5DB;font-size:13px;margin:0;line-height:1.7;">
-                Kamu sudah berada di kondisi kelelahan tinggi selama <b>{bad_streak} sesi berturut-turut</b>.
-                Recovery plan di bawah telah diintensifkan. Jika kondisi tidak membaik,
+                Recovery plan telah diintensifkan. Jika kondisi tidak membaik,
                 pertimbangkan konsultasi dengan profesional kesehatan mental.
             </p>
         </div>
@@ -3005,9 +3046,7 @@ elif menu == "Recovery":
             <p style="color:#fcd34d;font-size:14px;font-weight:700;margin:0 0 4px;">
                 ⚠️ Streak Kondisi Buruk: {bad_streak} Sesi Berturut-turut
             </p>
-            <p style="color:#D1D5DB;font-size:13px;margin:0;line-height:1.7;">
-                Recovery plan telah diperkuat dengan rekomendasi tambahan.
-            </p>
+            <p style="color:#D1D5DB;font-size:13px;margin:0;">Recovery plan telah diperkuat.</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -3028,7 +3067,7 @@ elif menu == "Recovery":
         dop_desc = f"Aktivitas digital masih sehat. Gadget {screen_time} jam/hari masih dalam batas aman."
     elif prediction == "Strained":
         dop_pct, dop_stat = fatigue_percent, "🟡 Sedang"
-        dop_desc = f"Tanda-tanda overstimulasi digital ringan. Gadget {screen_time} jam & sosmed {social_media} jam mulai mempengaruhi fokus."
+        dop_desc = f"Tanda-tanda overstimulasi digital ringan."
     else:
         dop_pct, dop_stat = min(fatigue_percent + 5, 95), "🔴 Tinggi"
         dop_desc = "Overstimulasi digital tinggi terdeteksi."
@@ -3095,13 +3134,16 @@ elif menu == "Recovery":
 
     recovery_plan_tabs(challenges_by_cat, prefix="rec")
 
-
 # ═════════════════════════════════════════════
-# PAGE: JOURNEY
+# PAGE: STRAVA
 # ═════════════════════════════════════════════
 
 elif menu == "Strava":
     show_strava_page()
+
+# ═════════════════════════════════════════════
+# PAGE: JOURNEY
+# ═════════════════════════════════════════════
 
 elif menu == "Journey":
 
@@ -3172,6 +3214,7 @@ elif menu == "Journey":
     st.subheader("📊 Insight Lanjutan")
 
     ins1, ins2, ins3 = st.columns(3)
+    corr = get_screentime_fatigue_corr(history_df)
 
     with ins1:
         best_day, best_day_val = get_best_day_of_week(history_df)
@@ -3179,8 +3222,7 @@ elif menu == "Journey":
             st.markdown(f"""
             <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;
                         padding:16px;text-align:center;">
-                <p style="color:#6b7280;font-size:12px;font-weight:700;
-                          letter-spacing:1px;margin:0 0 8px;">HARI TERBAIK</p>
+                <p style="color:#6b7280;font-size:12px;font-weight:700;letter-spacing:1px;margin:0 0 8px;">HARI TERBAIK</p>
                 <p style="color:#22c55e;font-size:22px;font-weight:800;margin:0 0 4px;">{best_day}</p>
                 <p style="color:#9ca3af;font-size:13px;margin:0;">Avg fatigue: {best_day_val}%</p>
             </div>
@@ -3189,15 +3231,13 @@ elif menu == "Journey":
             st.info("Belum cukup data untuk hari terbaik.")
 
     with ins2:
-        corr = get_screentime_fatigue_corr(history_df)
         if corr is not None:
             corr_color = "#ef4444" if corr > 0.5 else "#f59e0b" if corr > 0.2 else "#22c55e"
             corr_label = "Korelasi Kuat" if abs(corr) > 0.5 else "Korelasi Sedang" if abs(corr) > 0.2 else "Korelasi Lemah"
             st.markdown(f"""
             <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;
                         padding:16px;text-align:center;">
-                <p style="color:#6b7280;font-size:12px;font-weight:700;
-                          letter-spacing:1px;margin:0 0 8px;">SCREEN TIME VS FATIGUE</p>
+                <p style="color:#6b7280;font-size:12px;font-weight:700;letter-spacing:1px;margin:0 0 8px;">SCREEN TIME VS FATIGUE</p>
                 <p style="color:{corr_color};font-size:22px;font-weight:800;margin:0 0 4px;">r = {corr}</p>
                 <p style="color:#9ca3af;font-size:13px;margin:0;">{corr_label}</p>
             </div>
@@ -3206,8 +3246,6 @@ elif menu == "Journey":
             st.markdown("""
             <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;
                         padding:16px;text-align:center;">
-                <p style="color:#6b7280;font-size:12px;font-weight:700;
-                          letter-spacing:1px;margin:0 0 8px;">SCREEN TIME VS FATIGUE</p>
                 <p style="color:#4b5563;font-size:14px;margin:0;">Butuh min. 3 data</p>
             </div>
             """, unsafe_allow_html=True)
@@ -3220,16 +3258,11 @@ elif menu == "Journey":
             st.markdown(f"""
             <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;
                         padding:16px;text-align:center;">
-                <p style="color:#6b7280;font-size:12px;font-weight:700;
-                          letter-spacing:1px;margin:0 0 8px;">PREDIKSI BESOK</p>
-                <p style="color:{pred_color};font-size:22px;font-weight:800;margin:0 0 4px;">
-                    {tomorrow_pred}%
-                </p>
+                <p style="color:#6b7280;font-size:12px;font-weight:700;letter-spacing:1px;margin:0 0 8px;">PREDIKSI BESOK</p>
+                <p style="color:{pred_color};font-size:22px;font-weight:800;margin:0 0 4px;">{tomorrow_pred}%</p>
                 <p style="color:#9ca3af;font-size:13px;margin:0;">{pred_label}</p>
             </div>
             """, unsafe_allow_html=True)
-            if tomorrow_pred > 65:
-                st.warning(f"⚠️ Berdasarkan tren terkini, prediksi fatigue besok mencapai **{tomorrow_pred}%**.")
         else:
             st.info("Belum cukup data untuk prediksi.")
 
@@ -3311,7 +3344,7 @@ elif menu == "Journey":
             f"Diekspor  : {datetime.now().strftime('%d %B %Y, %H:%M')}",
             f"Total Sesi: {len(history_df)}",
             "",
-            f"Fatigue Terbaik : {history_df['Fatigue Risk'].min():.0f}%",
+            f"Fatigue Terbaik  : {history_df['Fatigue Risk'].min():.0f}%",
             f"Fatigue Tertinggi: {history_df['Fatigue Risk'].max():.0f}%",
             f"Rata-rata Fatigue: {history_df['Fatigue Risk'].mean():.1f}%",
             "",
@@ -3402,7 +3435,6 @@ elif menu == "Journey":
                 st.session_state.confirm_delete = False
                 st.rerun()
 
-
 # ═════════════════════════════════════════════
 # PAGE: GUIDE
 # ═════════════════════════════════════════════
@@ -3424,23 +3456,19 @@ elif menu == "Guide":
     st.markdown(
         "Semua yang perlu kamu tahu tentang kesehatan mental di era digital — "
         "dijelaskan dengan sederhana dan mudah dipahami."
-        )
+    )
     st.markdown("---")
 
     st.markdown("""
     <div style="background:#111827;padding:22px 24px;border-radius:18px;
                 border-left:5px solid #3B82F6;margin-bottom:20px;">
-        <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
-            Apa itu Kelelahan Digital?
-        </p>
+        <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">Apa itu Kelelahan Digital?</p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
             Kelelahan digital adalah kondisi saat otak kamu kelelahan karena terlalu banyak
             berinteraksi dengan layar — scrolling, notifikasi, konten video, chat, dan lainnya.
         </p>
         <div style="background:#1E3A5F;border-radius:12px;padding:14px 16px;">
-            <p style="color:#93C5FD;font-size:14px;font-weight:600;margin:0 0 8px;">
-                Tanda-tanda kamu mulai kelelahan digital:
-            </p>
+            <p style="color:#93C5FD;font-size:14px;font-weight:600;margin:0 0 8px;">Tanda-tanda kamu mulai kelelahan digital:</p>
             <ul style="color:#D1D5DB;font-size:14px;line-height:2;margin:0;padding-left:18px;">
                 <li>Sulit fokus walau pekerjaannya mudah</li>
                 <li>Sering buka HP tanpa tujuan jelas</li>
@@ -3453,18 +3481,11 @@ elif menu == "Guide":
 
     <div style="background:#1a1020;padding:22px 24px;border-radius:18px;
                 border-left:5px solid #A855F7;margin-bottom:20px;">
-        <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
-            Kenapa Scrolling Bikin Ketagihan?
-        </p>
+        <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">Kenapa Scrolling Bikin Ketagihan?</p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
             TikTok, Instagram Reels, dan YouTube Shorts dirancang seperti mesin slot —
             kamu tidak tahu konten apa yang akan muncul selanjutnya, dan itu membuat otak
             terus memproduksi <b style="color:#C084FC;">dopamin</b> (zat kimia "kesenangan").
-        </p>
-        <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
-            Masalahnya: semakin sering dopamin dipicu oleh hal mudah (scroll),
-            maka semakin sulit otak untuk menikmati aktivitas yang membutuhkan usaha — seperti belajar, membaca,
-            atau mengerjakan tugas.
         </p>
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
             <div style="background:#2D1B4E;border-radius:10px;padding:12px 14px;flex:1;min-width:140px;">
@@ -3480,9 +3501,7 @@ elif menu == "Guide":
 
     <div style="background:#0f1a1a;padding:22px 24px;border-radius:18px;
                 border-left:5px solid #10B981;margin-bottom:20px;">
-        <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">
-            Kenapa Tidur Itu Sangat Penting?
-        </p>
+        <p style="font-size:20px;font-weight:700;color:white;margin:0 0 10px;">Kenapa Tidur Itu Sangat Penting?</p>
         <p style="font-size:15px;color:#D1D5DB;line-height:1.8;margin:0 0 12px;">
             Saat tidur, otak sedang <b style="color:#34D399;">memproses memori, membuang racun saraf</b>,
             dan memulihkan energi mental untuk hari berikutnya.
@@ -3526,9 +3545,7 @@ elif menu == "Guide":
     st.markdown("""
     <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);
                 border-radius:14px;padding:18px 20px;margin-top:16px;">
-        <p style="color:#FCA5A5;font-size:14px;font-weight:700;margin:0 0 8px;">
-            🔴 Penting untuk Diketahui
-        </p>
+        <p style="color:#FCA5A5;font-size:14px;font-weight:700;margin:0 0 8px;">🔴 Penting untuk Diketahui</p>
         <p style="color:#D1D5DB;font-size:13px;line-height:1.8;margin:0;">
             Recovera adalah <b style="color:white;">alat bantu kesadaran diri</b>, bukan aplikasi medis.
             Seluruh hasil analisis bersifat estimasi dan <b style="color:white;">tidak menggantikan
